@@ -144,7 +144,7 @@ def add_message_to_conversation(
     conversation_id: int, 
     role: str, 
     content: str,
-    uploaded_files: List = None
+    uploaded_files: Optional[List] = None
 ) -> int:
     """
     Add a message to a conversation

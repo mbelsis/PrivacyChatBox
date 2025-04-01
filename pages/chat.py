@@ -3,18 +3,23 @@ import time
 from datetime import datetime
 import pandas as pd
 import json
+import re
+from typing import List, Optional
 
 # Import custom modules
 from database import get_session
 from models import Conversation, Message, File, Settings
 from privacy_scanner import scan_text, anonymize_text, scan_file_content
-from ai_providers import get_ai_response, create_system_prompt, get_user_settings
+from ai_providers import get_ai_response, create_system_prompt, get_user_settings, get_available_models
 from utils import (
     create_new_conversation, 
     get_conversation, 
     add_message_to_conversation,
     save_uploaded_file
 )
+
+# Import for web search functionality
+from serpapi import GoogleSearch
 
 def show():
     """Main function to display the chat interface"""
@@ -91,7 +96,62 @@ def show():
         return
     
     # Display the conversation title
-    st.subheader(f"Conversation: {conversation.title}")
+    title_col1, title_col2, title_col3 = st.columns([3, 2, 2])
+    
+    with title_col1:
+        st.subheader(f"Conversation: {conversation.title}")
+    
+    # Add model selector in second column
+    with title_col2:
+        # Get all available models for the current provider
+        available_models = get_available_models()
+        current_provider = settings.llm_provider
+        model_options = available_models.get(current_provider, [])
+        
+        # Get current model from settings
+        current_model = ""
+        if current_provider == "openai":
+            current_model = settings.openai_model
+        elif current_provider == "claude":
+            current_model = settings.claude_model
+        elif current_provider == "gemini":
+            current_model = settings.gemini_model
+        
+        # Create a temporary model selection for this session only
+        if "temp_model" not in st.session_state:
+            st.session_state.temp_model = current_model
+            
+        # Model selection dropdown
+        selected_model = st.selectbox(
+            "AI Model",
+            model_options,
+            index=model_options.index(st.session_state.temp_model) if st.session_state.temp_model in model_options else 0
+        )
+        
+        # Update session state
+        st.session_state.temp_model = selected_model
+    
+    # Add character selector in third column
+    with title_col3:
+        character_options = ["assistant", "privacy_expert", "data_analyst", "programmer"]
+        
+        # Create a temporary character selection for this session only
+        if "temp_character" not in st.session_state:
+            st.session_state.temp_character = settings.ai_character
+            
+        # Character selection dropdown
+        selected_character = st.selectbox(
+            "AI Character",
+            character_options,
+            index=character_options.index(st.session_state.temp_character) if st.session_state.temp_character in character_options else 0
+        )
+        
+        # Update session state
+        st.session_state.temp_character = selected_character
+    
+    # Display privacy notice if needed
+    if settings.scan_enabled:
+        st.info("🔒 Privacy scanning is enabled. Sensitive information will be detected and can be anonymized.")
     
     # Display the messages in the conversation
     message_container = st.container()
@@ -100,28 +160,55 @@ def show():
         for message in conversation.messages:
             if message.role == "user":
                 with st.chat_message("user"):
-                    st.write(message.content)
+                    # Check if this was a search command
+                    if message.content.startswith("/search "):
+                        st.write(f"🔍 **Search Query:** {message.content[8:]}")
+                    else:
+                        st.write(message.content)
                     
                     # Display files if they exist
                     for file in message.files:
-                        st.caption(f"File: {file.original_name} ({file.mime_type})")
+                        st.caption(f"📎 File: {file.original_name} ({file.mime_type})")
             else:
                 with st.chat_message("assistant"):
                     st.write(message.content)
     
-    # File uploader
-    uploaded_files = st.file_uploader(
-        "Upload files to include in your message", 
-        accept_multiple_files=True,
-        type=["txt", "py", "java", "cpp", "c", "json", "csv", "md"]
-    )
+    # Input area container
+    st.markdown("---")
+    input_container = st.container()
     
-    # Show privacy warning if scanning is enabled
-    if settings.scan_enabled:
-        st.caption("🔒 Privacy scanning is enabled. Sensitive information will be detected and can be anonymized.")
-    
-    # Chat input
-    user_message = st.chat_input("Type your message here...")
+    with input_container:
+        # Create two columns for file upload and message input
+        col1, col2 = st.columns([1, 4])
+        
+        # File uploader in the first column with custom styling
+        with col1:
+            st.markdown("""
+            <style>
+            .stFileUploader > div:first-child {
+                background-color: #f0f2f6;
+                padding: 1rem;
+                border-radius: 0.5rem;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            uploaded_files = st.file_uploader(
+                "📎 Files",
+                accept_multiple_files=True,
+                type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"]
+            )
+            
+            if uploaded_files:
+                st.caption(f"{len(uploaded_files)} file(s) ready to send")
+        
+        # Message input in the second column
+        with col2:
+            # Help text for commands
+            st.caption("💡 Tip: Use /search [query] to search the web")
+            
+            # Chat input
+            user_message = st.chat_input("Type your message here...")
     
     if user_message:
         # Display user message
@@ -211,20 +298,68 @@ def show():
                 file_context += file_data["content"]
                 file_context += f"\n--- END FILE: {file_data['name']} ---\n\n"
         
+        # Handle web search directive
+        search_results = ""
+        if final_message.startswith("/search "):
+            search_query = final_message[8:].strip()
+            response_container = st.empty()
+            response_container.info(f"🔍 Searching the web for: {search_query}")
+            
+            # Check if SerpAPI key is configured
+            if not settings.serpapi_key:
+                st.warning("⚠️ SerpAPI key not configured. Please add your API key in the settings.")
+            else:
+                try:
+                    # Perform the search
+                    search_params = {
+                        "q": search_query,
+                        "api_key": settings.serpapi_key,
+                        "num": 5  # Get top 5 results
+                    }
+                    
+                    search = GoogleSearch(search_params)
+                    results = search.get_dict()
+                    
+                    # Format search results
+                    search_results = "\n\nWeb search results for query: " + search_query + "\n\n"
+                    
+                    if "organic_results" in results:
+                        for i, result in enumerate(results["organic_results"][:5], 1):
+                            title = result.get("title", "No title")
+                            snippet = result.get("snippet", "No description")
+                            link = result.get("link", "#")
+                            search_results += f"{i}. {title}\n{snippet}\nURL: {link}\n\n"
+                    else:
+                        search_results = "\n\nNo search results found.\n\n"
+                    
+                    response_container.success("✅ Search completed")
+                except Exception as e:
+                    search_results = f"\n\nError performing web search: {str(e)}\n\n"
+                    response_container.error(f"Error during search: {str(e)}")
+        
+        # Get the currently selected model and character (from temporary session state)
+        selected_model = st.session_state.get("temp_model", "")
+        selected_character = st.session_state.get("temp_character", settings.ai_character)
+        
         # Prepare messages for AI
         ai_messages = []
         
-        # Add system message
-        system_prompt = create_system_prompt(settings.ai_character)
+        # Add system message based on selected character
+        system_prompt = create_system_prompt(selected_character)
         ai_messages.append({"role": "system", "content": system_prompt})
         
         # Add conversation history (limit to last 10 messages to avoid token limits)
         for message in conversation.messages[-10:]:
             ai_messages.append({"role": message.role, "content": message.content})
         
-        # Modify the last user message to include file context if any
-        if file_context and ai_messages and ai_messages[-1]["role"] == "user":
-            ai_messages[-1]["content"] += file_context
+        # Modify the last user message to include file context and search results if any
+        if (file_context or search_results) and ai_messages and ai_messages[-1]["role"] == "user":
+            content = ai_messages[-1]["content"]
+            if search_results:
+                content += search_results
+            if file_context:
+                content += file_context
+            ai_messages[-1]["content"] = content
         
         # Get AI response
         with st.chat_message("assistant"):
@@ -247,7 +382,13 @@ def show():
             else:
                 # Get streamed response from AI provider
                 try:
-                    response_stream = get_ai_response(user_id, ai_messages, stream=True)
+                    # Pass the selected model as override_model
+                    response_stream = get_ai_response(
+                        user_id, 
+                        ai_messages, 
+                        stream=True,
+                        override_model=selected_model
+                    )
                     
                     # Check if response is a string (error) or a generator
                     if isinstance(response_stream, str):
@@ -269,7 +410,7 @@ def show():
             conversation_id=conversation_id,
             role="assistant",
             content=full_response,
-            uploaded_files=None
+            uploaded_files=[] # Empty list instead of None
         )
         
         # Update the conversation in session state

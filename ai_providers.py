@@ -60,7 +60,8 @@ def create_system_prompt(ai_character: str) -> str:
 def get_ai_response(
     user_id: int, 
     messages: List[Dict[str, str]], 
-    stream: bool = True
+    stream: bool = True,
+    override_model: Optional[str] = None
 ) -> Union[str, Generator[str, None, None]]:
     """
     Get a response from the configured AI model
@@ -69,25 +70,42 @@ def get_ai_response(
         user_id: ID of the current user
         messages: List of messages in the conversation
         stream: Whether to stream the response
+        override_model: Optional model name to override the one in settings
         
     Returns:
         Either a string response or a generator that yields chunks of the response
     """
+    # Get user settings
     settings = get_user_settings(user_id)
     
     if not settings:
         return "Error: User settings not found"
     
-    provider = settings.llm_provider
+    # Create a copy of settings to avoid modifying the original
+    import copy
+    settings_copy = copy.copy(settings)
+    
+    # Override model if specified
+    if override_model and override_model.strip():
+        # Check which provider we're using and update the appropriate model
+        if settings.llm_provider == "openai":
+            settings_copy.openai_model = override_model
+        elif settings.llm_provider == "claude":
+            settings_copy.claude_model = override_model
+        elif settings.llm_provider == "gemini":
+            settings_copy.gemini_model = override_model
+    
+    # Route to appropriate provider
+    provider = settings_copy.llm_provider
     
     if provider == "openai":
-        return get_openai_response(settings, messages, stream)
+        return get_openai_response(settings_copy, messages, stream)
     elif provider == "claude":
-        return get_claude_response(settings, messages, stream)
+        return get_claude_response(settings_copy, messages, stream)
     elif provider == "gemini":
-        return get_gemini_response(settings, messages, stream)
+        return get_gemini_response(settings_copy, messages, stream)
     elif provider == "local":
-        return get_local_response(settings, messages, stream)
+        return get_local_response(settings_copy, messages, stream)
     else:
         return "Error: Invalid AI provider selected"
 
