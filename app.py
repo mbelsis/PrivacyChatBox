@@ -109,10 +109,13 @@ with st.sidebar:
         if st.button("⚙️ Settings", use_container_width=True):
             st.switch_page("pages/settings.py")
             
-        # Only show admin panel for admin users
+        # Only show admin panel and analytics for admin users
         if st.session_state.role == "admin":
             if st.button("👑 Admin Panel", use_container_width=True):
                 st.switch_page("pages/admin.py")
+            
+            if st.button("📊 Analytics Dashboard", use_container_width=True):
+                st.switch_page("pages/analytics.py")
         
         if st.button("Toggle Dark/Light Mode"):
             toggle_dark_mode()

@@ -255,6 +255,60 @@ def show():
     .message-input {
         flex-grow: 1;
     }
+    
+    /* Integrate drag & drop with the chat input */
+    section[data-testid="stFileUploader"] > div:first-child {
+        padding: 0 !important;
+        border: none !important;
+        background-color: transparent !important;
+    }
+    
+    /* Style the drag & drop text */
+    section[data-testid="stFileUploader"] > div:first-child > div:first-child > span:first-child {
+        font-size: 0.8rem !important;
+        color: #666 !important;
+        font-style: italic !important;
+    }
+    
+    /* Position the file uploader over the chat input */
+    .file-upload-overlay {
+        width: 100%;
+        position: relative;
+        z-index: 10;
+    }
+    
+    /* Position the message input */
+    .message-input {
+        width: 100%;
+        position: relative;
+        z-index: 5;
+        margin-top: -40px;
+    }
+    
+    /* Style the upload button to look like an icon */
+    section[data-testid="stFileUploader"] button[kind="secondary"] {
+        border: none !important;
+        padding: 0.5rem !important;
+        background-color: transparent !important;
+        color: #0b5394 !important;
+        margin-right: 5px !important;
+    }
+    
+    /* Make the file names appear more compact */
+    section[data-testid="stFileUploader"] div[data-testid="stFileUploadDropzoneContentUploadedFile"] {
+        padding: 2px 5px !important;
+        margin: 2px !important;
+        background-color: #f0f6ff !important;
+        border-radius: 4px !important;
+    }
+    
+    /* Style the chat input to be more visible */
+    div[data-testid="stChatInput"] {
+        border: 1px solid #e0e0e0 !important;
+        border-radius: 20px !important;
+        background-color: #ffffff !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -289,32 +343,27 @@ def show():
     with input_container:
         st.markdown('<div class="input-area">', unsafe_allow_html=True)
         
-        # Use a single column for the input container
+        # Create a container for the integrated input
         input_col = st.container()
         
         with input_col:
             st.markdown('<div class="input-container">', unsafe_allow_html=True)
             
-            # Use columns inside the input container
-            file_col, msg_col = st.columns([1, 12])
+            # First add the file uploader that spans the entire width
+            st.markdown('<div class="file-upload-overlay">', unsafe_allow_html=True)
+            uploaded_files = st.file_uploader(
+                "Drag files here or browse",
+                accept_multiple_files=True,
+                type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"],
+                label_visibility="visible"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
             
-            with file_col:
-                st.markdown('<div class="upload-button">', unsafe_allow_html=True)
-                # Upload button
-                uploaded_files = st.file_uploader(
-                    "Files",
-                    accept_multiple_files=True,
-                    type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"],
-                    label_visibility="collapsed"
-                )
-                st.markdown('</div>', unsafe_allow_html=True)
+            # Now add the chat input below
+            st.markdown('<div class="message-input">', unsafe_allow_html=True)
+            user_message = st.chat_input("Type your message here or drag files anywhere...")
+            st.markdown('</div>', unsafe_allow_html=True)
             
-            with msg_col:
-                st.markdown('<div class="message-input">', unsafe_allow_html=True)
-                # Chat input
-                user_message = st.chat_input("Type your message here...")
-                st.markdown('</div>', unsafe_allow_html=True)
-        
             st.markdown('</div>', unsafe_allow_html=True)
             
             # File support info below input container
