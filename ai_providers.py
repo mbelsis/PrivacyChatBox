@@ -187,20 +187,100 @@ def get_openai_response(
     client = openai.OpenAI(api_key=api_key)
     
     try:
-        # Make sure we have a system message first
-        has_system = False
+        # Extract the current context and user request
+        user_message = ""
+        for msg in messages:
+            if msg["role"] == "user" and msg == messages[-1]:
+                user_message = msg["content"]
+                
+        # Get the system message if it exists
+        system_content = ""
         for msg in messages:
             if msg["role"] == "system":
-                has_system = True
+                system_content = msg["content"]
                 break
                 
-        # If no system message, add a default one
-        if not has_system:
-            messages.insert(0, {
-                "role": "system", 
-                "content": "You are a helpful, harmless, and honest AI assistant."
-            })
+        # If no system message, use a default one
+        if not system_content:
+            system_content = "You are a helpful, harmless, and honest AI assistant."
             
+        # Look for cues in the user message to determine what type of response is needed
+        code_request = any(phrase in user_message.lower() for phrase in 
+                          ["write code", "write a script", "write python", "python script", 
+                           "code example", "code sample", "function", "programming", 
+                           "implement", "create a program"])
+                           
+        # Also check for comparison/explanation questions
+        comparison_request = any(phrase in user_message.lower() for phrase in 
+                               ["difference between", "compare", "versus", "vs", 
+                                "what is", "how does", "explain", "describe"])
+        
+        # Extract the original role from system_content (assuming it contains the role information)
+        if "programmer" in system_content.lower():
+            role_type = "programmer"
+        elif "data analyst" in system_content.lower():
+            role_type = "data analyst"
+        elif "privacy expert" in system_content.lower():
+            role_type = "privacy expert"
+        else:
+            role_type = "assistant"
+        
+        # For code requests, add an explicit instruction to the system message
+        if code_request:
+            # Create an enhanced system message that forces the model to produce code
+            enhanced_system = f"""{system_content}
+            
+CRITICAL INSTRUCTION: The user is requesting code. You MUST respond with actual working code.
+DO NOT respond with explanations about a topic instead of code.
+DO NOT merely discuss code concepts without providing actual code.
+
+As a {role_type}, when asked to write code:
+1. Always provide a complete, working solution
+2. Use appropriate programming language syntax
+3. Include comments to explain your code
+4. Provide example usage if applicable
+5. Focus on providing functional, efficient code
+
+VERY IMPORTANT: Respond DIRECTLY with code, not with a discussion of the topic."""
+            
+            # Replace the system message with the enhanced version
+            for i, msg in enumerate(messages):
+                if msg["role"] == "system":
+                    messages[i]["content"] = enhanced_system
+                    break
+            
+            # If there was no system message, add the enhanced one
+            if not any(msg["role"] == "system" for msg in messages):
+                messages.insert(0, {"role": "system", "content": enhanced_system})
+        
+        # For comparison/explanation questions, add specific instructions
+        elif comparison_request:
+            # Create an enhanced system message for explanations based on the role
+            enhanced_system = f"""{system_content}
+
+IMPORTANT: The user is asking for {role_type}-specific information or a comparison.
+Respond with accurate, detailed information about the topic.
+Stay within your role as a {role_type} while providing this explanation.
+
+When comparing technologies or concepts:
+1. Provide clear definitions of each item being compared
+2. Highlight key differences and similarities
+3. Explain the practical implications of these differences
+4. If relevant to your role, offer recommendations based on the comparison
+5. Structure your response in a clear, organized manner
+
+Remember to maintain your {role_type} perspective throughout the explanation."""
+            
+            # Replace the system message with the enhanced version
+            for i, msg in enumerate(messages):
+                if msg["role"] == "system":
+                    messages[i]["content"] = enhanced_system
+                    break
+            
+            # If there was no system message, add the enhanced one
+            if not any(msg["role"] == "system" for msg in messages):
+                messages.insert(0, {"role": "system", "content": enhanced_system})
+        
         # Create completion request with clear parameters
         response = client.chat.completions.create(
             model=model,
