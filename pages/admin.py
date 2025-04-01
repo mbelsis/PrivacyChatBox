@@ -156,11 +156,16 @@ def show():
         total_detection_events = session.query(DetectionEvent).count()
         
         # Get user with most conversations
+        from sqlalchemy import func
+        
         most_conversations_query = session.query(
             User.username,
             User.id,
-            session.query(Conversation).filter(Conversation.user_id == User.id).count().label('count')
-        ).order_by(session.query(Conversation).filter(Conversation.user_id == User.id).count().desc()).first()
+            func.count(Conversation.id).label('count')
+        ).join(Conversation, User.id == Conversation.user_id, isouter=True)\
+         .group_by(User.id)\
+         .order_by(func.count(Conversation.id).desc())\
+         .first()
         
         # Get latest detection event
         latest_event = session.query(DetectionEvent).order_by(DetectionEvent.timestamp.desc()).first()

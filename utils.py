@@ -85,11 +85,25 @@ def get_conversations(user_id: int) -> List[Conversation]:
         List of conversation objects
     """
     session = get_session()
-    conversations = session.query(Conversation).filter(
-        Conversation.user_id == user_id
-    ).order_by(
-        Conversation.updated_at.desc()
-    ).all()
+    
+    # Get conversations with message count
+    from sqlalchemy import func
+    from sqlalchemy.orm import aliased, joinedload
+    
+    # Create an alias for the Message class
+    Message_alias = aliased(Message)
+    
+    # Query conversations along with their message count
+    conversations = session.query(Conversation)\
+        .options(joinedload(Conversation.messages))\
+        .filter(Conversation.user_id == user_id)\
+        .order_by(Conversation.updated_at.desc())\
+        .all()
+    
+    # Detach objects from session
+    if conversations:
+        session.expunge_all()
+    
     session.close()
     
     return conversations
@@ -105,9 +119,23 @@ def get_conversation(conversation_id: int) -> Optional[Conversation]:
         Conversation object or None if not found
     """
     session = get_session()
-    conversation = session.query(Conversation).filter(
-        Conversation.id == conversation_id
-    ).first()
+    
+    # Use eager loading to load the messages and files
+    from sqlalchemy.orm import joinedload
+    
+    conversation = session.query(Conversation)\
+        .options(
+            joinedload(Conversation.messages).joinedload(Message.files)
+        )\
+        .filter(Conversation.id == conversation_id)\
+        .first()
+    
+    # Important: If the conversation exists, make a detached copy of it
+    # so we can use it after the session is closed
+    if conversation:
+        # This keeps the loaded relationships intact
+        session.expunge_all()
+        
     session.close()
     
     return conversation
