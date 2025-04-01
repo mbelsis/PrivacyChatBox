@@ -201,10 +201,16 @@ def show():
         padding-bottom: 10px !important;
     }
     
+    /* Give AI responses a slight background color */
+    .css-1c7y2kd {  /* This targets the assistant message bubbles */
+        background-color: #f8f9fa !important;
+    }
+    
     /* Make file uploader button more compact */
     .stFileUploader > div:first-child {
         background-color: transparent !important;
         padding: 0 !important;
+        margin-bottom: 0 !important;
     }
     .stFileUploader > div > small {
         display: none !important;
@@ -220,11 +226,34 @@ def show():
         padding: 10px 0;
         border-top: 1px solid #e0e0e0;
         z-index: 100;
+        display: flex;
+        align-items: center;
     }
     
     /* Create space for fixed input area */
     .chat-container {
         margin-bottom: 80px;
+    }
+    
+    /* Connect file uploader with the message input box */
+    .input-container {
+        display: flex;
+        align-items: center;
+        border: 1px solid #e0e0e0;
+        border-radius: 20px;
+        padding: 5px;
+        background-color: #ffffff;
+        width: 100%;
+    }
+    
+    /* Make the file upload button part of the input box */
+    .upload-button {
+        margin-right: 5px;
+    }
+    
+    /* Style the input box */
+    .message-input {
+        flex-grow: 1;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -259,24 +288,38 @@ def show():
     
     with input_container:
         st.markdown('<div class="input-area">', unsafe_allow_html=True)
-        cols = st.columns([1, 10, 1])
         
-        with cols[0]:
-            # Upload button
-            uploaded_files = st.file_uploader(
-                "Files",
-                accept_multiple_files=True,
-                type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"],
-                label_visibility="collapsed"
-            )
+        # Use a single column for the input container
+        input_col = st.container()
         
-        with cols[1]:
-            # File support info
+        with input_col:
+            st.markdown('<div class="input-container">', unsafe_allow_html=True)
+            
+            # Use columns inside the input container
+            file_col, msg_col = st.columns([1, 12])
+            
+            with file_col:
+                st.markdown('<div class="upload-button">', unsafe_allow_html=True)
+                # Upload button
+                uploaded_files = st.file_uploader(
+                    "Files",
+                    accept_multiple_files=True,
+                    type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"],
+                    label_visibility="collapsed"
+                )
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            with msg_col:
+                st.markdown('<div class="message-input">', unsafe_allow_html=True)
+                # Chat input
+                user_message = st.chat_input("Type your message here...")
+                st.markdown('</div>', unsafe_allow_html=True)
+        
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # File support info below input container
             supported_files = "TXT, PY, JAVA, CPP, C, JSON, CSV, MD, DOCX, XLSX, PPTX, PDF"
             st.caption(f"💡 Tip: Use /search [query] to search the web • Supported files: {supported_files}")
-            
-            # Chat input
-            user_message = st.chat_input("Type your message here...")
             
             # Show file count if any are uploaded
             if uploaded_files:
