@@ -183,9 +183,9 @@ def show():
             label_visibility="visible"
         )
     
-    # Display privacy notice if needed
+    # Display a very small privacy notice if needed
     if settings.scan_enabled:
-        st.info("🔒 Privacy scanning is enabled. Sensitive information will be detected and can be anonymized.")
+        st.markdown('<div style="font-size: 0.7rem; color: #5a9; padding: 1px 5px; border-radius: 3px; background-color: #f0f9f6; margin-bottom: 5px;">🔒 Privacy protection active</div>', unsafe_allow_html=True)
     
     # Custom CSS to make the layout more compact similar to ChatGPT
     st.markdown("""
