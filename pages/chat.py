@@ -95,13 +95,30 @@ def show():
         st.rerun()
         return
     
-    # Display the conversation title
-    st.subheader(f"Conversation: {conversation.title}")
+    # More compact layout with selectors and chat in a single continuous view
+    st.container().markdown("""
+    <style>
+    /* Additional CSS for more compact layout */
+    section.main > div:first-child {
+        padding-top: 0.5rem !important;
+        padding-bottom: 0.5rem !important;
+    }
+    .stSelectbox {
+        margin-bottom: 0 !important;
+    }
+    .stMarkdown h3 {
+        margin-bottom: 5px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
-    # Create a row for provider/model/character selectors
-    selector_col1, selector_col2, selector_col3 = st.columns([1, 1, 1])
+    # Title and selector row
+    st.subheader(f"Conversation: {conversation.title}", anchor=False)
     
-    with selector_col1:
+    # Create a more compact row for all selectors
+    compact_col1, compact_col2, compact_col3 = st.columns([1, 1, 1])
+    
+    with compact_col1:
         # AI Provider selector
         provider_options = ["openai", "claude", "gemini", "local"]
         
@@ -113,13 +130,14 @@ def show():
         selected_provider = st.selectbox(
             "AI Provider",
             provider_options,
-            index=provider_options.index(st.session_state.temp_provider) if st.session_state.temp_provider in provider_options else 0
+            index=provider_options.index(st.session_state.temp_provider) if st.session_state.temp_provider in provider_options else 0,
+            label_visibility="visible"
         )
         
         # Update session state
         st.session_state.temp_provider = selected_provider
     
-    with selector_col2:
+    with compact_col2:
         # Get all available models for the selected provider
         available_models = get_available_models()
         current_provider = st.session_state.temp_provider
@@ -143,13 +161,14 @@ def show():
         selected_model = st.selectbox(
             "AI Model",
             model_options,
-            index=model_options.index(st.session_state.temp_model) if st.session_state.temp_model in model_options and model_options else 0
+            index=model_options.index(st.session_state.temp_model) if st.session_state.temp_model in model_options and model_options else 0,
+            label_visibility="visible"
         )
         
         # Update session state
         st.session_state.temp_model = selected_model
     
-    with selector_col3:
+    with compact_col3:
         character_options = ["assistant", "privacy_expert", "data_analyst", "programmer"]
         
         # Create a temporary character selection for this session only
@@ -160,38 +179,29 @@ def show():
         selected_character = st.selectbox(
             "AI Character",
             character_options,
-            index=character_options.index(st.session_state.temp_character) if st.session_state.temp_character in character_options else 0
+            index=character_options.index(st.session_state.temp_character) if st.session_state.temp_character in character_options else 0,
+            label_visibility="visible"
         )
-        
-        # Update session state
-        st.session_state.temp_character = selected_character
     
     # Display privacy notice if needed
     if settings.scan_enabled:
         st.info("🔒 Privacy scanning is enabled. Sensitive information will be detected and can be anonymized.")
     
-    # Custom CSS to create a chat container with fixed input at bottom
+    # Custom CSS to make the layout more compact similar to ChatGPT
     st.markdown("""
     <style>
-    .chat-container {
-        display: flex;
-        flex-direction: column;
-        height: calc(100vh - 300px);
-        min-height: 400px;
+    /* Make the selectors more compact */
+    div[data-testid="stVerticalBlock"] > div.element-container:nth-child(2) {
+        margin-bottom: 0px !important;
     }
-    .messages-container {
-        flex: 1;
-        overflow-y: auto;
-        padding: 10px;
-        margin-bottom: 10px;
+    
+    /* Reduce padding around chat messages */
+    .stChatMessage {
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
     }
-    .input-container {
-        border-top: 1px solid #e0e0e0;
-        padding-top: 10px;
-        background-color: white;
-        position: sticky;
-        bottom: 0;
-    }
+    
+    /* Make file uploader button more compact */
     .stFileUploader > div:first-child {
         background-color: transparent !important;
         padding: 0 !important;
@@ -199,26 +209,30 @@ def show():
     .stFileUploader > div > small {
         display: none !important;
     }
-    .upload-button-container {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-    }
-    .small-upload-button {
-        border-radius: 20px;
-        padding: 5px 10px;
-        border: 1px solid #e0e0e0;
+    
+    /* Fix the input area at the bottom */
+    .input-area {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
         background-color: white;
-        cursor: pointer;
+        padding: 10px 0;
+        border-top: 1px solid #e0e0e0;
+        z-index: 100;
+    }
+    
+    /* Create space for fixed input area */
+    .chat-container {
+        margin-bottom: 80px;
     }
     </style>
     """, unsafe_allow_html=True)
     
-    # Create container for the entire chat UI
+    # Chat message container with padding at bottom for fixed input
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
-    # Messages container
-    st.markdown('<div class="messages-container">', unsafe_allow_html=True)
+    # Display the messages in the conversation
     for message in conversation.messages:
         if message.role == "user":
             with st.chat_message("user"):
@@ -234,29 +248,26 @@ def show():
         else:
             with st.chat_message("assistant"):
                 st.write(message.content)
+    
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Input area container (fixed at bottom)
-    st.markdown('<div class="input-container">', unsafe_allow_html=True)
+    # Add a container at the bottom for the input area
+    st.markdown('<div class="input-area">', unsafe_allow_html=True)
+    cols = st.columns([1, 10, 1])
     
-    # Create a row for the input area
-    input_col1, input_col2, input_col3 = st.columns([1, 12, 1])
-    
-    # Upload button on the left side
-    with input_col1:
+    with cols[0]:
+        # Upload button
         uploaded_files = st.file_uploader(
             "Files",
             accept_multiple_files=True,
             type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"],
             label_visibility="collapsed"
         )
-        
-    # Message input in the center
-    with input_col2:
-        # Add tip about search and file types
+    
+    with cols[1]:
+        # File support info
         supported_files = "TXT, PY, JAVA, CPP, C, JSON, CSV, MD, DOCX, XLSX, PPTX, PDF"
-        tip_text = f"💡 Tip: Use /search [query] to search the web • Supported files: {supported_files}"
-        st.caption(tip_text)
+        st.caption(f"💡 Tip: Use /search [query] to search the web • Supported files: {supported_files}")
         
         # Chat input
         user_message = st.chat_input("Type your message here...")
@@ -265,10 +276,6 @@ def show():
         if uploaded_files:
             st.caption(f"📎 {len(uploaded_files)} file(s) ready to send")
     
-    # Close the input container div
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Close the chat container div
     st.markdown('</div>', unsafe_allow_html=True)
     
     if user_message:
