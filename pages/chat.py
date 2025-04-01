@@ -529,13 +529,26 @@ def show():
                     ai_messages.append({"role": message.role, "content": message.content})
             
             # Modify the last user message to include file context and search results if any
-            if (file_context or search_results) and ai_messages and ai_messages[-1]["role"] == "user":
-                content = ai_messages[-1]["content"]
-                if search_results:
-                    content += search_results
-                if file_context:
-                    content += file_context
-                ai_messages[-1]["content"] = content
+            # And reinforce the AI character role for each user message
+            for i, msg in enumerate(ai_messages):
+                if msg["role"] == "user":
+                    # Get the AI character role name
+                    role_name = selected_character.replace("_", " ").title()
+                    
+                    # Add a reinforcement prefix to remind the AI of its role
+                    role_prefix = f"[Remember to respond as a {role_name}] "
+                    
+                    # Add context if this is the last user message
+                    if i == len(ai_messages) - 1 and (file_context or search_results):
+                        content = msg["content"]
+                        if search_results:
+                            content += search_results
+                        if file_context:
+                            content += file_context
+                        ai_messages[i]["content"] = role_prefix + content
+                    else:
+                        # Just add the role prefix to other user messages
+                        ai_messages[i]["content"] = role_prefix + msg["content"]
             
             # Get AI response
             with st.chat_message("assistant"):
