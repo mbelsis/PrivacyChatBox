@@ -1,10 +1,18 @@
 [project]
-name = "repl-nix-workspace"
+name = "PrivacyChatBoX"
 version = "0.1.0"
-description = "Add your description here"
+description = "A privacy-focused AI chat platform built with Streamlit"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.49.0",
     "openai>=1.70.0",
     "streamlit>=1.44.0",
+    "python-dotenv>=1.0.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+    "pyjwt>=2.6.0",
+    "reportlab>=4.0.0",
+    "pandas>=2.0.0",
+    "google-generativeai>=0.3.0",
+    "requests>=2.29.0",
 ]

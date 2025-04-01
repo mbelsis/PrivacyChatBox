@@ -2,14 +2,9 @@ import streamlit as st
 import hashlib
 import os
 from datetime import datetime, timedelta
-import jwt
 from database import get_session
 from models import User, Settings
 from sqlalchemy.exc import IntegrityError
-
-# Secret key for JWT token generation
-JWT_SECRET = os.environ.get("JWT_SECRET", "default_secret_key")
-JWT_EXPIRY_DAYS = 30
 
 def init_auth():
     """Initialize authentication system"""
@@ -68,9 +63,13 @@ def authenticate(username, password):
     user = session.query(User).filter(User.username == username).first()
     
     if user and user.password == hash_password(password):
-        # Generate JWT token and store in session
-        token = generate_jwt_token(user.id, user.username, user.role)
-        st.session_state.token = token
+        # Store user info in session state
+        st.session_state.user_info = {
+            "user_id": user.id,
+            "username": user.username,
+            "role": user.role,
+            "exp": (datetime.utcnow() + timedelta(days=30)).isoformat()
+        }
         
         return True, user.id, user.role
     
@@ -161,23 +160,3 @@ def update_user_role(user_id, new_role):
     
     session.close()
     return False
-
-def generate_jwt_token(user_id, username, role):
-    """Generate a JWT token for the user"""
-    payload = {
-        "user_id": user_id,
-        "username": username,
-        "role": role,
-        "exp": datetime.utcnow() + timedelta(days=JWT_EXPIRY_DAYS)
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
-
-def verify_jwt_token(token):
-    """Verify a JWT token"""
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return True, payload
-    except jwt.ExpiredSignatureError:
-        return False, "Token expired"
-    except jwt.InvalidTokenError:
-        return False, "Invalid token"

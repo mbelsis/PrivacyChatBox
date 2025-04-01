@@ -3,6 +3,7 @@ from datetime import datetime
 import os
 import uuid
 import pandas as pd
+import importlib
 
 # Import custom modules
 from auth import authenticate, create_user, get_users, init_auth
@@ -157,10 +158,15 @@ if not st.session_state.authenticated:
         st.write("Automatically replace or mask detected sensitive information before sending to AI models.")
 
 else:
-    # Redirect to chat page by default if authenticated
-    import chat
-    chat.show()
+    # Try to import chat dynamically to avoid import errors
+    try:
+        # Import the pages.chat module dynamically
+        chat_module = importlib.import_module("pages.chat")
+        chat_module.show()
+    except Exception as e:
+        st.error(f"Error loading chat module: {str(e)}")
+        st.info("Please navigate to chat using the sidebar.")
 
 # Footer
 st.markdown("---")
-st.markdown("PrivacyChatBoX © 2023 | Secure AI Communication")
+st.markdown("PrivacyChatBoX © 2025 | Secure AI Communication")
