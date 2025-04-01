@@ -61,7 +61,8 @@ def get_ai_response(
     user_id: int, 
     messages: List[Dict[str, str]], 
     stream: bool = True,
-    override_model: Optional[str] = None
+    override_model: Optional[str] = None,
+    override_provider: Optional[str] = None
 ) -> Union[str, Generator[str, None, None]]:
     """
     Get a response from the configured AI model
@@ -71,6 +72,7 @@ def get_ai_response(
         messages: List of messages in the conversation
         stream: Whether to stream the response
         override_model: Optional model name to override the one in settings
+        override_provider: Optional provider name to override the one in settings
         
     Returns:
         Either a string response or a generator that yields chunks of the response
@@ -85,14 +87,18 @@ def get_ai_response(
     import copy
     settings_copy = copy.copy(settings)
     
+    # Override provider if specified
+    if override_provider and override_provider.strip():
+        settings_copy.llm_provider = override_provider
+    
     # Override model if specified
     if override_model and override_model.strip():
         # Check which provider we're using and update the appropriate model
-        if settings.llm_provider == "openai":
+        if settings_copy.llm_provider == "openai":
             settings_copy.openai_model = override_model
-        elif settings.llm_provider == "claude":
+        elif settings_copy.llm_provider == "claude":
             settings_copy.claude_model = override_model
-        elif settings.llm_provider == "gemini":
+        elif settings_copy.llm_provider == "gemini":
             settings_copy.gemini_model = override_model
     
     # Route to appropriate provider

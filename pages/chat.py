@@ -96,16 +96,33 @@ def show():
         return
     
     # Display the conversation title
-    title_col1, title_col2, title_col3 = st.columns([3, 2, 2])
+    st.subheader(f"Conversation: {conversation.title}")
     
-    with title_col1:
-        st.subheader(f"Conversation: {conversation.title}")
+    # Create a row for provider/model/character selectors
+    selector_col1, selector_col2, selector_col3 = st.columns([1, 1, 1])
     
-    # Add model selector in second column
-    with title_col2:
-        # Get all available models for the current provider
+    with selector_col1:
+        # AI Provider selector
+        provider_options = ["openai", "claude", "gemini", "local"]
+        
+        # Create a temporary provider selection for this session only
+        if "temp_provider" not in st.session_state:
+            st.session_state.temp_provider = settings.llm_provider
+            
+        # Provider selection dropdown
+        selected_provider = st.selectbox(
+            "AI Provider",
+            provider_options,
+            index=provider_options.index(st.session_state.temp_provider) if st.session_state.temp_provider in provider_options else 0
+        )
+        
+        # Update session state
+        st.session_state.temp_provider = selected_provider
+    
+    with selector_col2:
+        # Get all available models for the selected provider
         available_models = get_available_models()
-        current_provider = settings.llm_provider
+        current_provider = st.session_state.temp_provider
         model_options = available_models.get(current_provider, [])
         
         # Get current model from settings
@@ -118,21 +135,21 @@ def show():
             current_model = settings.gemini_model
         
         # Create a temporary model selection for this session only
-        if "temp_model" not in st.session_state:
+        if "temp_model" not in st.session_state or st.session_state.temp_provider != getattr(st.session_state, "last_provider", ""):
             st.session_state.temp_model = current_model
+            st.session_state.last_provider = current_provider
             
         # Model selection dropdown
         selected_model = st.selectbox(
             "AI Model",
             model_options,
-            index=model_options.index(st.session_state.temp_model) if st.session_state.temp_model in model_options else 0
+            index=model_options.index(st.session_state.temp_model) if st.session_state.temp_model in model_options and model_options else 0
         )
         
         # Update session state
         st.session_state.temp_model = selected_model
     
-    # Add character selector in third column
-    with title_col3:
+    with selector_col3:
         character_options = ["assistant", "privacy_expert", "data_analyst", "programmer"]
         
         # Create a temporary character selection for this session only
@@ -153,62 +170,106 @@ def show():
     if settings.scan_enabled:
         st.info("🔒 Privacy scanning is enabled. Sensitive information will be detected and can be anonymized.")
     
-    # Display the messages in the conversation
-    message_container = st.container()
+    # Custom CSS to create a chat container with fixed input at bottom
+    st.markdown("""
+    <style>
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 300px);
+        min-height: 400px;
+    }
+    .messages-container {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+        margin-bottom: 10px;
+    }
+    .input-container {
+        border-top: 1px solid #e0e0e0;
+        padding-top: 10px;
+        background-color: white;
+        position: sticky;
+        bottom: 0;
+    }
+    .stFileUploader > div:first-child {
+        background-color: transparent !important;
+        padding: 0 !important;
+    }
+    .stFileUploader > div > small {
+        display: none !important;
+    }
+    .upload-button-container {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .small-upload-button {
+        border-radius: 20px;
+        padding: 5px 10px;
+        border: 1px solid #e0e0e0;
+        background-color: white;
+        cursor: pointer;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
-    with message_container:
-        for message in conversation.messages:
-            if message.role == "user":
-                with st.chat_message("user"):
-                    # Check if this was a search command
-                    if message.content.startswith("/search "):
-                        st.write(f"🔍 **Search Query:** {message.content[8:]}")
-                    else:
-                        st.write(message.content)
-                    
-                    # Display files if they exist
-                    for file in message.files:
-                        st.caption(f"📎 File: {file.original_name} ({file.mime_type})")
-            else:
-                with st.chat_message("assistant"):
+    # Create container for the entire chat UI
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    
+    # Messages container
+    st.markdown('<div class="messages-container">', unsafe_allow_html=True)
+    for message in conversation.messages:
+        if message.role == "user":
+            with st.chat_message("user"):
+                # Check if this was a search command
+                if message.content.startswith("/search "):
+                    st.write(f"🔍 **Search Query:** {message.content[8:]}")
+                else:
                     st.write(message.content)
+                
+                # Display files if they exist
+                for file in message.files:
+                    st.caption(f"📎 File: {file.original_name} ({file.mime_type})")
+        else:
+            with st.chat_message("assistant"):
+                st.write(message.content)
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    # Input area container
-    st.markdown("---")
-    input_container = st.container()
+    # Input area container (fixed at bottom)
+    st.markdown('<div class="input-container">', unsafe_allow_html=True)
     
-    with input_container:
-        # Create two columns for file upload and message input
-        col1, col2 = st.columns([1, 4])
+    # Create a row for the input area
+    input_col1, input_col2, input_col3 = st.columns([1, 12, 1])
+    
+    # Upload button on the left side
+    with input_col1:
+        uploaded_files = st.file_uploader(
+            "Files",
+            accept_multiple_files=True,
+            type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"],
+            label_visibility="collapsed"
+        )
         
-        # File uploader in the first column with custom styling
-        with col1:
-            st.markdown("""
-            <style>
-            .stFileUploader > div:first-child {
-                background-color: #f0f2f6;
-                padding: 1rem;
-                border-radius: 0.5rem;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            uploaded_files = st.file_uploader(
-                "📎 Files",
-                accept_multiple_files=True,
-                type=["txt", "py", "java", "cpp", "c", "json", "csv", "md", "docx", "xlsx", "pptx", "pdf"]
-            )
-            
-            if uploaded_files:
-                st.caption(f"{len(uploaded_files)} file(s) ready to send")
+    # Message input in the center
+    with input_col2:
+        # Add tip about search and file types
+        supported_files = "TXT, PY, JAVA, CPP, C, JSON, CSV, MD, DOCX, XLSX, PPTX, PDF"
+        tip_text = f"💡 Tip: Use /search [query] to search the web • Supported files: {supported_files}"
+        st.caption(tip_text)
         
-        # Message input in the second column
-        with col2:
-            # Help text for commands
-            st.caption("💡 Tip: Use /search [query] to search the web")
-            
-            # Chat input
-            user_message = st.chat_input("Type your message here...")
+        # Chat input
+        user_message = st.chat_input("Type your message here...")
+        
+        # Show file count if any are uploaded
+        if uploaded_files:
+            st.caption(f"📎 {len(uploaded_files)} file(s) ready to send")
+    
+    # Close the input container div
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Close the chat container div
+    st.markdown('</div>', unsafe_allow_html=True)
     
     if user_message:
         # Display user message
@@ -370,24 +431,36 @@ def show():
             # Display thinking indicator
             thinking_msg = response_container.text("Thinking...")
             
-            # Check provider settings
-            if settings.llm_provider == "openai" and not settings.openai_api_key:
+            # Get the selected provider
+            selected_provider = st.session_state.get("temp_provider", settings.llm_provider)
+            
+            # Check provider settings based on the selected provider
+            if selected_provider == "openai" and not settings.openai_api_key:
                 full_response = "⚠️ OpenAI API key not configured. Please add your API key in the settings."
-            elif settings.llm_provider == "claude" and not settings.claude_api_key:
+            elif selected_provider == "claude" and not settings.claude_api_key:
                 full_response = "⚠️ Claude API key not configured. Please add your API key in the settings."
-            elif settings.llm_provider == "gemini" and not settings.gemini_api_key:
+            elif selected_provider == "gemini" and not settings.gemini_api_key:
                 full_response = "⚠️ Gemini API key not configured. Please add your API key in the settings."
-            elif settings.llm_provider == "local" and not settings.local_model_path:
+            elif selected_provider == "local" and not settings.local_model_path:
                 full_response = "⚠️ Local model path not configured. Please add a model path in the settings."
             else:
                 # Get streamed response from AI provider
                 try:
-                    # Pass the selected model as override_model
+                    # Get the selected provider
+                    selected_provider = st.session_state.get("temp_provider", settings.llm_provider)
+                    
+                    # Override the provider settings temporarily
+                    provider_settings = {}
+                    if selected_provider != settings.llm_provider:
+                        provider_settings["override_provider"] = selected_provider
+                    
+                    # Pass the selected model and provider as overrides
                     response_stream = get_ai_response(
                         user_id, 
                         ai_messages, 
                         stream=True,
-                        override_model=selected_model
+                        override_model=selected_model,
+                        **provider_settings
                     )
                     
                     # Check if response is a string (error) or a generator
