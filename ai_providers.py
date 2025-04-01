@@ -202,26 +202,43 @@ def get_gemini_response(
     # Configure API
     genai.configure(api_key=api_key)
     
-    # Initialize model
-    gemini_model = GenerativeModel(model)
-    
-    # Convert messages to Gemini format
-    gemini_messages = []
-    system_content = None
-    
-    for msg in messages:
-        if msg["role"] == "system":
-            system_content = msg["content"]
-        elif msg["role"] == "user":
-            gemini_messages.append({"role": "user", "parts": [msg["content"]]})
-        elif msg["role"] == "assistant":
-            gemini_messages.append({"role": "model", "parts": [msg["content"]]})
-    
-    # Add system message as user message if present
-    if system_content:
-        gemini_messages.insert(0, {"role": "user", "parts": [f"System instruction: {system_content}"]})
+    # Check and correct model name if needed
+    available_models = get_available_models()["gemini"]
+    if model not in available_models:
+        # Default to first available model if specified model not found
+        model = available_models[0]
+        # Update user's settings in the database
+        try:
+            session = get_session()
+            user_settings = session.query(Settings).filter(Settings.gemini_api_key == api_key).first()
+            if user_settings:
+                user_settings.gemini_model = model
+                session.commit()
+            session.close()
+        except Exception:
+            # Continue even if we can't update the settings
+            pass
     
     try:
+        # Initialize model
+        gemini_model = GenerativeModel(model)
+        
+        # Convert messages to Gemini format
+        gemini_messages = []
+        system_content = None
+        
+        for msg in messages:
+            if msg["role"] == "system":
+                system_content = msg["content"]
+            elif msg["role"] == "user":
+                gemini_messages.append({"role": "user", "parts": [msg["content"]]})
+            elif msg["role"] == "assistant":
+                gemini_messages.append({"role": "model", "parts": [msg["content"]]})
+        
+        # Add system message as user message if present
+        if system_content:
+            gemini_messages.insert(0, {"role": "user", "parts": [f"System instruction: {system_content}"]})
+        
         # Create chat session
         chat = gemini_model.start_chat(history=gemini_messages[:-1] if gemini_messages else [])
         
@@ -246,7 +263,12 @@ def get_gemini_response(
             return response.text
     
     except Exception as e:
-        return f"Error calling Gemini API: {str(e)}"
+        error_msg = str(e)
+        if "not found" in error_msg and "models/" in error_msg:
+            # If it's a model not found error, provide a more helpful message
+            available_models_str = ", ".join(available_models)
+            return f"Error: The selected Gemini model '{model}' is not available. Please update your settings to use one of the available models: {available_models_str}"
+        return f"Error calling Gemini API: {error_msg}"
 
 def get_local_response(
     settings: Settings, 
