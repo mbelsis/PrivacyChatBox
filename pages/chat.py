@@ -515,11 +515,18 @@ def show():
             
             # Add system message based on selected character
             system_prompt = create_system_prompt(selected_character)
-            ai_messages.append({"role": "system", "content": system_prompt})
+            # Always make system message the first message in the conversation
+            ai_messages = [{"role": "system", "content": system_prompt}]
             
-            # Add conversation history (limit to last 10 messages to avoid token limits)
-            for message in conversation.messages[-10:]:
-                ai_messages.append({"role": message.role, "content": message.content})
+            # Add conversation history (limit to avoid token limits, but ensure the system message stays)
+            # Only include the most recent 10 messages from the conversation
+            history_messages = conversation.messages[-10:] if len(conversation.messages) > 10 else conversation.messages
+            
+            for message in history_messages:
+                # Skip system messages that might be in the conversation history
+                # because we already added a system message at the beginning
+                if message.role != "system":
+                    ai_messages.append({"role": message.role, "content": message.content})
             
             # Modify the last user message to include file context and search results if any
             if (file_context or search_results) and ai_messages and ai_messages[-1]["role"] == "user":

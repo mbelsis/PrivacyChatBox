@@ -147,7 +147,21 @@ def get_openai_response(
     client = openai.OpenAI(api_key=api_key)
     
     try:
-        # Create completion request
+        # Make sure we have a system message first
+        has_system = False
+        for msg in messages:
+            if msg["role"] == "system":
+                has_system = True
+                break
+                
+        # If no system message, add a default one
+        if not has_system:
+            messages.insert(0, {
+                "role": "system", 
+                "content": "You are a helpful, harmless, and honest AI assistant."
+            })
+            
+        # Create completion request with clear parameters
         response = client.chat.completions.create(
             model=model,
             messages=messages,
