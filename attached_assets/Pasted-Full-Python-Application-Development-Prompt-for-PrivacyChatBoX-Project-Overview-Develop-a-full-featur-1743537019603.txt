@@ -1,0 +1,210 @@
+Full Python Application Development Prompt for PrivacyChatBoX
+Project Overview
+Develop a full-featured Python-based web application called "PrivacyChatBoX" - an intelligent AI-powered privacy protection platform that dynamically safeguards sensitive information across multiple document types using advanced anonymization techniques and adaptive machine learning.
+Core Functionality
+1. User authentication system with admin and regular user roles
+2. Integration with multiple AI models (OpenAI, Claude, Gemini, and local LLMs)
+3. Confidential information scanning before sending to AI models
+4. Document/text anonymization capabilities
+5. File upload for multiple formats (text, code, JSON, etc.)
+6. Comprehensive logging of detected sensitive information
+7. Settings management for API keys and scanning preferences
+8. Conversation history management
+9. PDF export of conversations
+10. PostgreSQL database integration for persistent storage
+Tech Stack
+* Python 3.11+
+* Flask web framework
+* Flask-Login for authentication
+* SQLAlchemy for ORM
+* PostgreSQL for database
+* OpenAI, Anthropic Claude, and Google Gemini API integrations
+* Regular expressions for pattern matching
+* PDF generation capabilities (using ReportLab or similar)
+* Bootstrap or Tailwind CSS for frontend styling
+Detailed Requirements
+1. Data Models
+Create the following SQLAlchemy models:
+* User
+    * id (primary key)
+    * username (unique)
+    * password (hashed)
+    * role (admin or user)
+    * relationships to settings, detection events, and conversations
+* Settings
+    * id (primary key)
+    * user_id (foreign key to User)
+    * llm_provider (openai, claude, gemini, local)
+    * ai_character (general, assistant, etc.)
+    * openai_api_key
+    * openai_model (gpt-4o by default)
+    * claude_api_key
+    * claude_model (claude-3-7-sonnet-20250219 by default)
+    * gemini_api_key
+    * gemini_model (gemini-pro by default)
+    * serpapi_key
+    * local_model_path
+    * scan_enabled (boolean)
+    * scan_level (standard, strict, etc.)
+    * auto_anonymize (boolean)
+    * disable_scan_for_local_model (boolean)
+    * custom_patterns (JSON array of regex patterns)
+* DetectionEvent
+    * id (primary key)
+    * user_id (foreign key to User)
+    * timestamp
+    * action
+    * severity
+    * detected_patterns (JSON)
+    * file_names
+* Conversation
+    * id (primary key)
+    * user_id (foreign key to User)
+    * title
+    * created_at
+    * updated_at
+    * messages (relationship)
+* Message
+    * id (primary key)
+    * conversation_id (foreign key to Conversation)
+    * role (user or assistant)
+    * content
+    * timestamp
+    * files (relationship)
+* File
+    * id (primary key)
+    * message_id (foreign key to Message)
+    * original_name
+    * path
+    * mime_type
+    * size
+    * scan_result (JSON)
+2. Authentication System
+* Implement user registration, login, and logout functionality
+* Hash passwords using werkzeug.security
+* Support session-based authentication with Flask-Login
+* Implement role-based access control (admin vs regular users)
+* Provide quick login options for development
+* Support for Azure AD integration (optional feature)
+3. Privacy Scanning Engine
+* Pattern matching for confidential information using regex
+* Built-in patterns for common sensitive data (credit cards, SSNs, emails, etc.)
+* Support for custom patterns defined by users
+* Multiple scan levels (standard, strict)
+* Anonymization options to replace or mask detected information
+* Scan history logging
+* Option to disable scanning for local LLMs
+4. AI Integration
+* OpenAI integration (GPT-4o)
+    * Implement text generation endpoints
+    * Support for system prompts
+    * Handle API key configuration
+    * Stream responses when available
+* Claude integration (claude-3-7-sonnet-20250219)
+    * Implement text generation endpoints
+    * Support for system prompts
+    * Handle API key configuration
+    * Stream responses when available
+* Gemini integration (gemini-pro)
+    * Implement text generation endpoints
+    * Support for system prompts
+    * Handle API key configuration
+    * Stream responses when available
+* Local LLM support
+    * Option to connect to locally hosted models
+    * Support for various model formats
+    * Documentation on installing and configuring local models
+5. File Handling
+* File upload functionality
+    * Support for text, code (Python, Java, C++), JSON
+    * File scanning before processing
+    * File storage with secure naming
+    * Proper MIME type detection
+* PDF Export
+    * Generate PDF reports of conversations
+    * Include metadata (timestamp, participants)
+    * Proper formatting of code and text
+    * Support for styling options
+6. User Interface
+* Responsive design using Bootstrap or Tailwind CSS
+* Login page with clear options and error handling
+* Dashboard with access to all main features
+* Chat interface with message history
+* Settings panel for configuration
+* Admin panel for user management
+* Scan history visualization
+* Dark/light mode support
+* Mobile-friendly design
+7. API Endpoints
+Create RESTful API endpoints for:
+* Authentication (login, logout, status)
+* User management (CRUD operations)
+* Conversation management
+* Message sending and receiving
+* File upload and download
+* Settings management
+* Scan history access
+8. Security Features
+* Password hashing and secure authentication
+* CSRF protection
+* XSS prevention
+* Input validation and sanitization
+* Rate limiting for API endpoints
+* Secure file handling
+* Environment variable management for secrets
+9. Deployment
+* Docker container support
+* Environment variable configuration
+* Database migration scripts
+* Static file handling
+* Production-ready WSGI configuration
+* Health check endpoints
+10. Documentation
+* API documentation
+* User guide
+* Admin guide
+* Installation instructions
+* Configuration options
+* Security best practices
+Additional Requirements
+* Error Handling: Implement comprehensive error handling and display user-friendly error messages
+* Logging: Set up detailed logging for debugging and audit purposes
+* Testing: Create unit and integration tests for core functionality
+* Performance: Optimize database queries and API calls for responsiveness
+* Accessibility: Ensure the UI meets WCAG 2.1 AA standards
+* Internationalization: Support for multiple languages (optional)
+* Backup: Implement database backup functionality
+Development Approach
+1. Set up the project structure and dependencies
+2. Implement database models and migrations
+3. Create the authentication system
+4. Develop the privacy scanning engine
+5. Integrate AI model APIs
+6. Build the file handling functionality
+7. Create the user interface
+8. Implement API endpoints
+9. Add security features
+10. Prepare deployment configuration
+11. Write documentation
+Resources Required
+* PostgreSQL database connection
+* OpenAI API key
+* Anthropic Claude API key
+* Google Gemini API key
+* SerpAPI key (for search functionality)
+* File storage location
+* Session secret key
+Implementation Timeline
+1. Phase 1: Core functionality (authentication, database, basic UI)
+2. Phase 2: AI integrations and privacy scanning engine
+3. Phase 3: File handling and PDF export
+4. Phase 4: Advanced features (admin panel, user management)
+5. Phase 5: Testing, optimization, and documentation
+Bonus Features
+* Real-time collaboration using WebSockets
+* Email notifications for security events
+* Integration with DLP (Data Loss Prevention) systems
+* Advanced analytics dashboard
+* Browser extension for scanning text outside the app
+* API key rotation management
+* Multi-factor authentication
