@@ -36,8 +36,8 @@ def get_available_models() -> Dict[str, List[str]]:
             "claude-3-haiku-20240307"
         ],
         "gemini": [
-            "gemini-pro", 
-            "gemini-1.5-pro"
+            "gemini-1.5-pro",
+            "gemini-1.5-flash"
         ],
         "local": [
             "Please specify path in settings"

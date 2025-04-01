@@ -6,7 +6,7 @@ from datetime import datetime
 # Import custom modules
 from database import get_session
 from models import Conversation, Message, File
-from utils import delete_conversation
+from utils import delete_conversation, get_conversation
 from pdf_export import export_conversation_to_pdf
 
 def show():
@@ -40,10 +40,24 @@ def show():
     conversation_data = []
     
     for conv in conversations:
-        # Count messages
-        message_count = len(conv.messages)
-        user_messages = sum(1 for msg in conv.messages if msg.role == "user")
-        ai_messages = sum(1 for msg in conv.messages if msg.role == "assistant")
+        # Initialize message counters safely
+        try:
+            # For detached objects, we need to ensure messages are loaded
+            if hasattr(conv, 'messages') and conv.messages is not None:
+                message_count = len(conv.messages)
+                user_messages = sum(1 for msg in conv.messages if msg.role == "user")
+                ai_messages = sum(1 for msg in conv.messages if msg.role == "assistant")
+            else:
+                # If messages aren't loaded, get a fresh conversation object
+                fresh_conv = get_conversation(conv.id)
+                message_count = len(fresh_conv.messages) if fresh_conv and hasattr(fresh_conv, 'messages') else 0
+                user_messages = sum(1 for msg in fresh_conv.messages if msg.role == "user") if fresh_conv and hasattr(fresh_conv, 'messages') else 0
+                ai_messages = sum(1 for msg in fresh_conv.messages if msg.role == "assistant") if fresh_conv and hasattr(fresh_conv, 'messages') else 0
+        except Exception as e:
+            # Fallback to safe values if any error occurs
+            message_count = 0
+            user_messages = 0
+            ai_messages = 0
         
         # Get date in readable format
         created_date = conv.created_at.strftime("%Y-%m-%d %H:%M")
@@ -146,36 +160,46 @@ def show():
         # Display conversation preview
         st.subheader("Conversation Preview")
         
-        # Display messages (limited to 5 for preview)
-        message_limit = 5
-        messages_to_show = selected_conversation.messages[:message_limit]
-        
-        for msg in messages_to_show:
-            if msg.role == "user":
-                with st.chat_message("user"):
-                    # Truncate long messages
-                    content = msg.content
-                    if len(content) > 300:
-                        content = content[:300] + "..."
-                    
-                    st.write(content)
-                    
-                    # Show files if any
-                    if msg.files:
-                        for file in msg.files:
-                            st.caption(f"File: {file.original_name}")
+        try:
+            # Get a fresh conversation with eagerly loaded messages and files
+            fresh_conversation = get_conversation(selected_id)
+            
+            if fresh_conversation and hasattr(fresh_conversation, 'messages') and fresh_conversation.messages:
+                # Display messages (limited to 5 for preview)
+                message_limit = 5
+                messages_to_show = fresh_conversation.messages[:message_limit]
+                
+                for msg in messages_to_show:
+                    if msg.role == "user":
+                        with st.chat_message("user"):
+                            # Truncate long messages
+                            content = msg.content
+                            if len(content) > 300:
+                                content = content[:300] + "..."
+                            
+                            st.write(content)
+                            
+                            # Show files if any
+                            if hasattr(msg, 'files') and msg.files:
+                                for file in msg.files:
+                                    st.caption(f"File: {file.original_name}")
+                    else:
+                        with st.chat_message("assistant"):
+                            # Truncate long messages
+                            content = msg.content
+                            if len(content) > 300:
+                                content = content[:300] + "..."
+                            
+                            st.write(content)
+                
+                # Show a message if there are more messages
+                if len(fresh_conversation.messages) > message_limit:
+                    st.info(f"Showing {message_limit} of {len(fresh_conversation.messages)} messages. Open the conversation to see all.")
             else:
-                with st.chat_message("assistant"):
-                    # Truncate long messages
-                    content = msg.content
-                    if len(content) > 300:
-                        content = content[:300] + "..."
-                    
-                    st.write(content)
-        
-        # Show a message if there are more messages
-        if len(selected_conversation.messages) > message_limit:
-            st.info(f"Showing {message_limit} of {len(selected_conversation.messages)} messages. Open the conversation to see all.")
+                st.info("No messages in this conversation. Open it to start chatting.")
+        except Exception as e:
+            st.error(f"Error loading conversation preview: {str(e)}")
+            st.info("Try opening the conversation to view messages.")
 
 # If the file is run directly, show the history interface
 if __name__ == "__main__" or "show" not in locals():

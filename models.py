@@ -37,7 +37,7 @@ class Settings(Base):
     claude_model = Column(String, default="claude-3-5-sonnet-20241022")
     
     gemini_api_key = Column(String, default="")
-    gemini_model = Column(String, default="gemini-pro")
+    gemini_model = Column(String, default="gemini-1.5-pro")
     
     serpapi_key = Column(String, default="")
     local_model_path = Column(String, default="")
