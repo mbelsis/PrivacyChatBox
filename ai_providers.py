@@ -47,15 +47,30 @@ def get_available_models() -> Dict[str, List[str]]:
 def create_system_prompt(ai_character: str) -> str:
     """Create a system prompt based on the AI character setting"""
     if ai_character == "assistant":
-        return "You are a helpful, harmless, and honest AI assistant. Answer the user's questions accurately and provide helpful information."
+        return """You are a helpful, harmless, and honest AI assistant. Answer the user's questions accurately and provide helpful information. 
+        You should be friendly and conversational but focused on providing accurate and useful responses.
+        Always maintain this role throughout the conversation."""
     elif ai_character == "privacy_expert":
-        return "You are a privacy and security expert. Provide guidance on protecting sensitive information and maintaining privacy. Highlight potential privacy concerns in user's queries."
+        return """You are a world-class privacy and security expert with decades of experience in data protection.
+        Your role is to provide guidance on protecting sensitive information and maintaining privacy.
+        Highlight potential privacy concerns in the user's queries and suggest practical solutions.
+        You should analyze potential data vulnerabilities and recommend appropriate safeguards.
+        Always maintain this expert role throughout the conversation."""
     elif ai_character == "data_analyst":
-        return "You are a data analysis expert. Help the user analyze and understand their data, providing insights and recommendations for better data management and visualization."
+        return """You are a senior data analysis expert with extensive experience in statistics and data science.
+        Your role is to help the user analyze and understand their data, providing insights and recommendations.
+        You should look for patterns, suggest visualizations, and help interpret results.
+        When reviewing data, consider potential correlations, outliers, and meaningful trends.
+        Always maintain this expert analyst role throughout the conversation."""
     elif ai_character == "programmer":
-        return "You are a programming assistant. Help the user with coding questions, debugging, and providing code examples. Explain technical concepts clearly."
+        return """You are an expert software developer with deep knowledge across multiple programming languages and frameworks.
+        Your role is to help with coding questions, debugging, and providing clean, efficient code examples.
+        Explain technical concepts clearly and suggest best practices for software development.
+        Consider both functionality and maintainability in your solutions.
+        Always maintain this expert developer role throughout the conversation."""
     else:
-        return "You are a helpful AI assistant. Answer the user's questions accurately and provide helpful information."
+        return """You are a helpful AI assistant. Answer the user's questions accurately and provide helpful information.
+        Always maintain a helpful and informative demeanor throughout the conversation."""
 
 def get_ai_response(
     user_id: int, 
@@ -136,17 +151,17 @@ def get_openai_response(
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            stream=stream
+            stream=stream,
+            temperature=0.7,
+            max_tokens=1500
         )
         
         if stream:
             # Return a generator that yields chunks of the response
             def response_generator():
-                collected_messages = []
                 for chunk in response:
-                    if chunk.choices and chunk.choices[0].delta.content:
+                    if chunk.choices and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content is not None:
                         content = chunk.choices[0].delta.content
-                        collected_messages.append(content)
                         yield content
             
             return response_generator()
@@ -259,11 +274,24 @@ def get_gemini_response(
             elif msg["role"] == "assistant":
                 gemini_messages.append({"role": "model", "parts": [msg["content"]]})
         
-        # Add system message as user message if present
+        # Add system message at the beginning as a clear instruction from user
+        # This approach makes Gemini treat the system prompt as instructions it should follow
         if system_content:
-            gemini_messages.insert(0, {"role": "user", "parts": [f"System instruction: {system_content}"]})
+            # Create a strong system instruction that Gemini will follow
+            formatted_system = f"""IMPORTANT INSTRUCTIONS: 
+You MUST act according to the following role throughout our ENTIRE conversation. 
+Do not break character under any circumstances:
+
+{system_content}
+
+Remember these instructions and embody this role consistently in all your responses."""
+            
+            # Insert at beginning of conversation history as a user instruction
+            gemini_messages.insert(0, {"role": "user", "parts": [formatted_system]})
+            # Add a confirmation from the model to acknowledge the role
+            gemini_messages.insert(1, {"role": "model", "parts": ["I understand my role and will act accordingly throughout our conversation."]})
         
-        # Create chat session
+        # Create chat session with the enhanced history
         chat = gemini_model.start_chat(history=gemini_messages[:-1] if gemini_messages else [])
         
         # Get response
