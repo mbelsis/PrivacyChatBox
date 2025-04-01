@@ -36,13 +36,21 @@ def init_db():
         # Create session factory
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         
-        # Create tables if they don't exist
-        from models import User, Settings, DetectionEvent, Conversation, Message, File
-        Base.metadata.create_all(engine)
-        
-        # Test the connection
+        # Test the connection first
         with engine.connect() as conn:
             conn.execute(sqlalchemy.text("SELECT 1"))
+        
+        # Create tables if they don't exist
+        # We'll import the models here to avoid circular imports
+        from models import User, Settings, DetectionEvent, Conversation, Message, File
+        
+        # Check if tables exist before creating them
+        inspector = sqlalchemy.inspect(engine)
+        existing_tables = inspector.get_table_names()
+        
+        if 'users' not in existing_tables:
+            # If tables don't exist, create them
+            Base.metadata.create_all(engine)
         
         return True
     except Exception as e:
