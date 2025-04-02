@@ -32,59 +32,6 @@ def show():
     # Page settings
     st.title("💬 AI Chat")
     
-    # Manually draw the sidebar menu if needed
-    if not st.sidebar.container().columns:
-        with st.sidebar:
-            st.image("https://img.icons8.com/fluency/96/privacy.png", width=60)
-            st.title("PrivacyChatBoX")
-            st.caption(f"Welcome, **{st.session_state.username}** ({st.session_state.role})")
-            
-            st.markdown("---")
-            
-            # Create a container with a colored background and rounded corners for the navigation menu
-            menu_container = st.container()
-            with menu_container:
-                # Add menu buttons with prominent icons and colored backgrounds
-                menu_options = {
-                    "chat": {"icon": "💬", "label": "Chat", "path": "pages/chat.py", "color": "#e3f2fd"},
-                    "history": {"icon": "📜", "label": "History", "path": "pages/history.py", "color": "#e8f5e9"},
-                    "settings": {"icon": "⚙️", "label": "Settings", "path": "pages/settings.py", "color": "#fafafa"}
-                }
-                
-                # Admin-only options
-                if st.session_state.role == "admin":
-                    menu_options["admin"] = {"icon": "👑", "label": "Admin Panel", "path": "pages/admin.py", "color": "#f3e5f5"}
-                    menu_options["analytics"] = {"icon": "📊", "label": "Analytics", "path": "pages/analytics.py", "color": "#fff3e0"}
-                
-                # Create buttons for each menu option
-                for key, option in menu_options.items():
-                    col1, col2 = st.columns([1, 5])
-                    with col1:
-                        st.markdown(f'<div style="font-size:24px; text-align:center">{option["icon"]}</div>', unsafe_allow_html=True)
-                    with col2:
-                        if st.button(option["label"], key=f"btn_{key}", use_container_width=True):
-                            st.switch_page(option["path"])
-            
-            # Add spacer
-            st.markdown("<br>" * 3, unsafe_allow_html=True)
-            
-            # Add theme toggle and logout buttons at the bottom
-            theme_col, logout_col = st.columns(2)
-            
-            with theme_col:
-                if st.button("🌙 Theme", key="theme_toggle", help="Toggle dark/light mode"):
-                    try:
-                        toggle_dark_mode()
-                    except:
-                        st.session_state.dark_mode = not st.session_state.dark_mode
-                        st.rerun()
-            
-            with logout_col:
-                if st.button("🚪 Logout", key="logout_button", help="Log out"):
-                    for key in list(st.session_state.keys()):
-                        del st.session_state[key]
-                    st.rerun()
-    
     # Get user information
     user_id = st.session_state.user_id
     if not user_id:
@@ -393,24 +340,7 @@ def show():
         box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
     }
     
-    /* Make sure sidebar is always visible in chat view */
-    section[data-testid="stSidebar"] {
-        display: flex !important;
-        visibility: visible !important;
-        position: fixed !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: 20rem !important;
-        height: 100vh !important;
-        overflow-y: auto !important;
-        z-index: 999 !important;
-    }
-    
-    /* Adjust main content to make room for sidebar */
-    .main .block-container {
-        margin-left: 20rem !important;
-        max-width: calc(100% - 20rem) !important;
-    }
+    /* No forced sidebar positioning - let Streamlit handle it */
     </style>
     """, unsafe_allow_html=True)
     
