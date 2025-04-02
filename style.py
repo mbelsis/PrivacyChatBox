@@ -25,5 +25,24 @@ def apply_custom_css():
         div[data-testid="stSidebarNav"] {
             display: none !important;
         }
+        
+        /* Fix sidebar width to prevent trembling */
+        section[data-testid="stSidebar"] {
+            width: 280px !important;
+            min-width: 280px !important;
+            max-width: 280px !important;
+        }
+        
+        /* Ensure the sidebar content doesn't cause width fluctuations */
+        section[data-testid="stSidebar"] > div {
+            width: 280px !important;
+        }
+        
+        /* Make sidebar buttons more stable */
+        div.stButton > button {
+            transition: background-color 0.3s, border-left 0.3s !important;
+            transform: translateZ(0);
+            backface-visibility: hidden;
+        }
     </style>
     """, unsafe_allow_html=True)
