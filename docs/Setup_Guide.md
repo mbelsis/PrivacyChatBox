@@ -208,6 +208,71 @@ If you're unable to log in with the default admin credentials:
    create_user("admin", "admin", "admin")
    ```
 
+## Docker Deployment
+
+PrivacyChatBoX can be easily deployed using Docker and Docker Compose, which simplifies setup and ensures consistent environments.
+
+### Prerequisites for Docker Deployment
+
+- Docker Engine (version 20.10.0 or higher)
+- Docker Compose (version 2.0.0 or higher)
+- Git (optional, for cloning the repository)
+
+### Deploying with Docker Compose
+
+#### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/yourusername/PrivacyChatBoX.git
+cd PrivacyChatBoX
+```
+
+#### Step 2: Configure Environment Variables (Optional)
+
+You can set up environment variables by:
+- Creating a `.env` file in the project root with your API keys and settings, or
+- Editing the `docker-compose.yml` file directly to add your environment variables
+
+#### Step 3: Start the Application
+
+```bash
+# For production
+docker-compose up -d
+
+# For development (includes Adminer database management tool)
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up
+```
+
+The application will be available at http://localhost:5000. If you're using the development configuration, the Adminer database management tool will be available at http://localhost:8080.
+
+#### Step 4: Initial Login
+
+Use the default admin credentials:
+- Username: **admin**
+- Password: **admin**
+
+#### Step 5: Stop the Application
+
+```bash
+docker-compose down
+```
+
+### Docker Configuration Files
+
+The Docker setup includes:
+- `Dockerfile`: Defines the application container
+- `docker-compose.yml`: Defines the production stack with PostgreSQL
+- `docker-compose.override.yml`: Development overrides
+- `docker-entrypoint.sh`: Handles database migrations during startup
+
+### Docker Volumes
+
+Two persistent volumes are configured:
+- `postgres_data`: Stores the database data
+- `models_data`: Stores downloaded local LLM models
+
+For more detailed information on Docker deployment, see the [Docker Guide](Docker_Guide.md).
+
 ## Additional Resources
 
 For more detailed information, check out these additional documentation files:
@@ -216,3 +281,4 @@ For more detailed information, check out these additional documentation files:
 - [Local LLM Integration](LocalLLM.md): Information about using local language models
 - [Troubleshooting Guide](Troubleshooting.md): Solutions for common issues
 - [Conversation Data Formatting](ConversationData.md): How conversation data is formatted and handled
+- [Docker Guide](Docker_Guide.md): Detailed guide on Docker deployment and configuration

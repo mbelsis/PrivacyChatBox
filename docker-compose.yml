@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+    volumes:
+      - models_data:/app/models  # Persist local LLM models
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/privacychatbox
+      - PGHOST=db
+      - PGUSER=postgres
+      - PGPASSWORD=postgres
+      - PGDATABASE=privacychatbox
+      - PGPORT=5432
+      # You can add other environment variables here
+      # - OPENAI_API_KEY=your_openai_key
+      # - CLAUDE_API_KEY=your_claude_key
+      # - GEMINI_API_KEY=your_gemini_key
+      # - SERPAPI_KEY=your_serpapi_key
+      # - MS_TENANT_ID=your_tenant_id
+      # - MS_CLIENT_ID=your_client_id
+      # - MS_CLIENT_SECRET=your_client_secret
+      # For Azure AD integration:
+      # - AZURE_TENANT_ID=your_azure_tenant_id
+      # - AZURE_CLIENT_ID=your_azure_client_id
+      # - AZURE_CLIENT_SECRET=your_azure_client_secret
+      # - AZURE_REDIRECT_URI=your_redirect_uri
+    
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=privacychatbox
+
+volumes:
+  postgres_data:  # Persist database data
+  models_data:    # Persist local LLM models

@@ -224,6 +224,64 @@ The application supports two types of user roles with different permissions:
 5. **Admin**: Manage users and view system metrics (admin only)
 6. **Model Manager**: Download and configure local LLM models (admin only)
 
+## Docker Deployment
+
+The application can be easily deployed using Docker and Docker Compose:
+
+### Prerequisites for Docker Deployment
+
+- Docker Engine (version 20.10.0 or higher)
+- Docker Compose (version 2.0.0 or higher)
+
+### Running with Docker Compose
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/PrivacyChatBoX.git
+   cd PrivacyChatBoX
+   ```
+
+2. Configure environment variables (optional):
+   Create a `.env` file in the project root with your API keys and settings, or edit the `docker-compose.yml` file directly.
+
+3. Start the application:
+   ```bash
+   docker-compose up -d
+   ```
+
+4. Access the application at `http://localhost:5000`
+
+5. Stop the application:
+   ```bash
+   docker-compose down
+   ```
+
+### Docker Development Environment
+
+For development, you can use the included `docker-compose.override.yml`:
+
+```bash
+# Start with development configuration (includes Adminer for database management)
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up
+
+# Access Adminer database management interface at http://localhost:8080
+# Login with:
+#   System: PostgreSQL
+#   Server: db
+#   Username: postgres
+#   Password: postgres
+#   Database: privacychatbox
+```
+
+### Docker Image Configuration
+
+The Docker configuration includes:
+- Base Python 3.11 image with needed system dependencies
+- PostgreSQL database container
+- Database migration automation
+- Persistent volumes for database data and local LLM models
+- Adminer for database management in development environment
+
 ## Environment Variables
 
 Refer to the Settings page > Environment Config tab for a complete list of available environment variables and their descriptions.

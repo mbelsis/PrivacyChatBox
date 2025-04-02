@@ -95,6 +95,20 @@ main() {
     
     warning "Make sure to change the admin password after your first login!"
     echo ""
+    
+    section "Docker Deployment Alternative"
+    info "PrivacyChatBoX can also be deployed using Docker:"
+    echo ""
+    echo "  1. Make sure Docker and Docker Compose are installed"
+    echo "  2. Run: docker-compose up -d"
+    echo "  3. Access the application at http://localhost:5000"
+    echo ""
+    info "For development with Docker:"
+    echo "  docker-compose -f docker-compose.yml -f docker-compose.override.yml up"
+    echo ""
+    info "For more details, see the Docker Guide:"
+    echo "  docs/Docker_Guide.md"
+    echo ""
 }
 
 # Check system requirements
