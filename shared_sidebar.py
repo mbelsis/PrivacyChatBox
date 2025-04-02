@@ -61,6 +61,10 @@ def create_sidebar(page_name=""):
                 # Admin-only options
                 if st.session_state.get("role", "") == "admin":
                     menu_options["admin"] = {"icon": "👑", "label": "Admin Panel", "path": "pages/admin.py", "color": "#f3e5f5"}
+                else:
+                    # Remove Model Manager option for non-admin users
+                    if "models" in menu_options:
+                        del menu_options["models"]
                 
                 # Create buttons for each menu option - with consistent widths
                 for key, option in menu_options.items():

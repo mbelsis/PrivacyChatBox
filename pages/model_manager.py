@@ -27,6 +27,11 @@ def show():
         st.warning("Please log in to access this page.")
         return
     
+    # Check admin access - only admins can access this page
+    if st.session_state.get("role") != "admin":
+        st.error("Access denied. This page is restricted to administrators only.")
+        return
+    
     user_id = st.session_state.get("user_id")
     
     # Get user settings
