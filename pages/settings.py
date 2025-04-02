@@ -400,7 +400,7 @@ def show():
         
         # Function to add a new pattern
         def add_pattern():
-            st.session_state.custom_patterns.append({"name": "", "pattern": ""})
+            st.session_state.custom_patterns.append({"name": "", "pattern": "", "level": "standard"})
         
         # Function to remove a pattern
         def remove_pattern(index):
@@ -408,7 +408,11 @@ def show():
         
         # Display existing patterns
         for i, pattern in enumerate(st.session_state.custom_patterns):
-            col1, col2, col3 = st.columns([3, 6, 1])
+            # Ensure pattern has a level attribute (backward compatibility)
+            if "level" not in pattern:
+                st.session_state.custom_patterns[i]["level"] = "standard"
+                
+            col1, col2, col3, col4 = st.columns([3, 5, 2, 1])
             
             with col1:
                 st.session_state.custom_patterns[i]["name"] = st.text_input(
@@ -425,6 +429,15 @@ def show():
                 )
             
             with col3:
+                st.session_state.custom_patterns[i]["level"] = st.selectbox(
+                    "Scan Level",
+                    options=["standard", "strict"],
+                    index=0 if pattern["level"] == "standard" else 1,
+                    key=f"level_{i}",
+                    help="Standard (baseline) patterns are included in all scans. Strict patterns are only used in strict mode."
+                )
+            
+            with col4:
                 st.button("🗑️", key=f"remove_{i}", on_click=remove_pattern, args=(i,))
         
         # Add new pattern button

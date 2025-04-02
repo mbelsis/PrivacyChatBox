@@ -115,9 +115,18 @@ def scan_text(user_id: int, text: str) -> Tuple[bool, Dict[str, List[str]]]:
     
     # Add custom patterns if available
     custom_patterns = settings.get_custom_patterns()
+    is_strict_mode = settings.scan_level == "strict"
+    
     for pattern_dict in custom_patterns:
         if isinstance(pattern_dict, dict) and "name" in pattern_dict and "pattern" in pattern_dict:
-            patterns[pattern_dict["name"]] = pattern_dict["pattern"]
+            # Check if pattern has a level attribute (backward compatibility)
+            pattern_level = pattern_dict.get("level", "standard")
+            
+            # Only add the pattern if:
+            # - In strict mode: include all patterns (both standard and strict)
+            # - In standard mode: only include patterns marked as "standard"
+            if is_strict_mode or pattern_level == "standard":
+                patterns[pattern_dict["name"]] = pattern_dict["pattern"]
     
     # Scan text with all patterns
     detected = {}

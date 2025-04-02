@@ -53,6 +53,7 @@ def create_sidebar(page_name=""):
                 menu_options = {
                     "chat": {"icon": "💬", "label": "Chat", "path": "pages/chat.py", "color": "#e3f2fd"},
                     "history": {"icon": "📜", "label": "History", "path": "pages/history.py", "color": "#e8f5e9"},
+                    "analytics": {"icon": "📊", "label": "Analytics", "path": "pages/analytics.py", "color": "#fff8e1"},
                     "settings": {"icon": "⚙️", "label": "Settings", "path": "pages/settings.py", "color": "#fafafa"},
                     "models": {"icon": "🤖", "label": "Model Manager", "path": "pages/model_manager.py", "color": "#ede7f6"},
                     "home": {"icon": "🏠", "label": "Home", "path": "app.py", "color": "#e0f7fa"}
