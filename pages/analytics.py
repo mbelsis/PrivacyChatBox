@@ -20,9 +20,27 @@ def show():
         st.stop()
     
     # Check if user is admin
-    if st.session_state.get("user_role") != "admin":
+    if st.session_state.get("role") != "admin":
         st.error("You must be an admin to access this page.")
         st.stop()
+    
+    # Check if there's any data in the database
+    with get_session() as session:
+        user_count = session.query(func.count(User.id)).scalar() or 0
+    
+    if user_count == 0:
+        st.info("No data available yet. Analytics will be populated as users start using the platform.")
+        
+        # Show empty state with placeholder metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Users", 0)
+        with col2:
+            st.metric("Total Conversations", 0)
+        with col3:
+            st.metric("Total Messages", 0)
+        
+        return
     
     # Tabs for different analytics views
     tab1, tab2, tab3, tab4 = st.tabs([
