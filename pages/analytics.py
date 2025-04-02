@@ -13,10 +13,14 @@ from database import get_session
 from models import DetectionEvent, User, Message, Conversation
 from sqlalchemy import func, desc, case, distinct, extract, cast, String, Float
 from sqlalchemy.orm import aliased
+import shared_sidebar
 
 def show():
     """Main function to display the analytics dashboard"""
-    st.title("Analytics Dashboard")
+    # Create sidebar with shared component
+    shared_sidebar.create_sidebar()
+    
+    st.title("📈 Analytics Dashboard")
     
     # Check if user is authenticated and is admin
     if "authenticated" not in st.session_state or not st.session_state.authenticated:

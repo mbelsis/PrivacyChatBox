@@ -11,9 +11,13 @@ from models import Settings
 from ai_providers import get_available_models
 from utils import update_user_settings
 from privacy_scanner import STANDARD_PATTERNS, STRICT_PATTERNS
+import shared_sidebar
 
 def show():
     """Main function to display the settings interface"""
+    # Create sidebar with shared component
+    shared_sidebar.create_sidebar()
+    
     # Page settings
     st.title("⚙️ Settings")
     

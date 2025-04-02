@@ -54,12 +54,17 @@ def toggle_dark_mode():
     # Use st.rerun() to apply changes
     st.rerun()
 
-# Sidebar for navigation and authentication
+# Import shared sidebar component
+import shared_sidebar
+
+# Check if we're on the main page - if so, we'll create the sidebar ourselves
+# Otherwise, the page-specific code will create it
+if __name__ == "__main__":
+    # Create sidebar with shared component
+    shared_sidebar.create_sidebar()
+
+# Main page sidebar content
 with st.sidebar:
-    st.title("🔒 PrivacyChatBoX")
-    st.caption("AI-powered privacy protection")
-    
-    # Show login form if not authenticated
     if not st.session_state.authenticated:
         # Add a nice logo/icon at the top
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -227,77 +232,9 @@ with st.sidebar:
                         else:
                             st.error("Username already exists")
     
-    # Show navigation menu if authenticated
+    # Show shared navigation menu if authenticated
     else:
-        st.image("https://img.icons8.com/fluency/96/privacy.png", width=60)
-        st.title("PrivacyChatBoX")
-        st.caption(f"Welcome, **{st.session_state.username}** ({st.session_state.role})")
-        
-        st.markdown("---")
-        
-        # Create a container with a colored background and rounded corners for the navigation menu
-        menu_container = st.container()
-        with menu_container:
-            # Create a grid layout for the menu items
-            button_style = """
-            <style>
-            div[data-testid="stVerticalBlock"] div.stButton > button {
-                width: 100%;
-                border: none;
-                padding: 15px 15px; 
-                text-align: left;
-                font-size: 16px;
-                font-weight: 500;
-                border-radius: 10px;
-                margin-bottom: 8px;
-                display: flex;
-                align-items: center;
-                background-color: #f0f8ff;
-            }
-            div[data-testid="stVerticalBlock"] div.stButton > button:hover {
-                background-color: #e1f5fe;
-                border-left: 4px solid #1e88e5;
-            }
-            </style>
-            """
-            st.markdown(button_style, unsafe_allow_html=True)
-            
-            # Add menu buttons with prominent icons and colored backgrounds
-            menu_options = {
-                "chat": {"icon": "💬", "label": "Chat", "path": "pages/chat.py", "color": "#e3f2fd"},
-                "history": {"icon": "📜", "label": "History", "path": "pages/history.py", "color": "#e8f5e9"},
-                "settings": {"icon": "⚙️", "label": "Settings", "path": "pages/settings.py", "color": "#fafafa"}
-            }
-            
-            # Admin-only options
-            if st.session_state.role == "admin":
-                menu_options["admin"] = {"icon": "👑", "label": "Admin Panel", "path": "pages/admin.py", "color": "#f3e5f5"}
-                menu_options["analytics"] = {"icon": "📊", "label": "Analytics", "path": "pages/analytics.py", "color": "#fff3e0"}
-            
-            # Create buttons for each menu option
-            for key, option in menu_options.items():
-                col1, col2 = st.columns([1, 5])
-                with col1:
-                    st.markdown(f'<div style="font-size:24px; text-align:center">{option["icon"]}</div>', unsafe_allow_html=True)
-                with col2:
-                    if st.button(option["label"], key=f"btn_{key}", use_container_width=True):
-                        st.switch_page(option["path"])
-        
-        # Add spacer
-        st.markdown("<br>" * 3, unsafe_allow_html=True)
-        
-        # Add theme toggle and logout buttons at the bottom
-        theme_col, logout_col = st.columns(2)
-        
-        with theme_col:
-            if st.button("🌙 Theme", key="theme_toggle", help="Toggle dark/light mode"):
-                toggle_dark_mode()
-        
-        with logout_col:
-            if st.button("🚪 Logout", key="logout_button", help="Log out"):
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
+        shared_sidebar.create_sidebar()
 
 # Main content area
 if not st.session_state.authenticated:

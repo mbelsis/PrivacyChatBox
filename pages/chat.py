@@ -21,14 +21,17 @@ from utils import (
     add_message_to_conversation,
     save_uploaded_file
 )
-# Import toggle_dark_mode function from app
-from app import toggle_dark_mode
+# Import shared sidebar
+import shared_sidebar
 
 # Import for web search functionality
 from serpapi import GoogleSearch
 
 def show():
     """Main function to display the chat interface"""
+    # Create sidebar with shared component
+    shared_sidebar.create_sidebar()
+    
     # Page settings
     st.title("💬 AI Chat")
     

@@ -12,9 +12,13 @@ from models import User, Settings, DetectionEvent, Conversation
 from auth import create_user, delete_user, update_user_role
 from privacy_scanner import get_detection_events
 from utils import format_detection_events
+import shared_sidebar
 
 def show():
     """Main function to display the admin panel"""
+    # Create sidebar with shared component
+    shared_sidebar.create_sidebar()
+    
     # Page settings
     st.title("👑 Admin Panel")
     

@@ -12,9 +12,13 @@ from database import get_session
 from models import Conversation, Message, File
 from utils import delete_conversation, get_conversation
 from pdf_export import export_conversation_to_pdf
+import shared_sidebar
 
 def show():
     """Main function to display the chat history interface"""
+    # Create sidebar with shared component
+    shared_sidebar.create_sidebar()
+    
     # Page settings
     st.title("📜 Conversation History")
     
