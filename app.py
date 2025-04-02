@@ -72,10 +72,10 @@ shared_sidebar.create_sidebar("main_app")
 # Main page sidebar content
 with st.sidebar:
     if not st.session_state.authenticated:
-        # Add a nice logo/icon at the top
-        col1, col2, col3 = st.columns([1, 2, 1])
+        # Add a nice logo/icon at the top - centered and bigger
+        col1, col2, col3 = st.columns([1, 3, 1])
         with col2:
-            st.image("assets/logo.png", width=150)
+            st.image("assets/logo.png", width=180)
             st.caption("Secure AI Assistant with Privacy Protection")
             
         # Create fancy tabs with icons

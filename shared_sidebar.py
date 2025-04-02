@@ -16,7 +16,10 @@ def create_sidebar(page_name=""):
     with st.sidebar:
         # Only show logo in sidebar for authenticated users to avoid duplication
         if st.session_state.authenticated:
-            st.image("assets/logo.png", width=120)
+            # Center the logo horizontally and make it bigger
+            col1, col2, col3 = st.columns([1, 3, 1])
+            with col2:
+                st.image("assets/logo.png", width=160)
             # Title already included in the logo
             st.caption(f"Welcome, **{st.session_state.username}** ({st.session_state.role})")
             

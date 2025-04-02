@@ -255,9 +255,37 @@ def show():
         
         # Show patterns included in each level
         if scan_level == "standard":
-            st.info("Standard patterns include: " + ", ".join(STANDARD_PATTERNS.keys()))
+            pattern_set = STANDARD_PATTERNS
+            st.info("Standard patterns include: " + ", ".join(pattern_set.keys()))
         else:
-            st.info("Strict patterns include: " + ", ".join(STRICT_PATTERNS.keys()))
+            pattern_set = STRICT_PATTERNS
+            st.info("Strict patterns include: " + ", ".join(pattern_set.keys()))
+            
+        # Show pattern details in an expander
+        with st.expander("View All Available Detection Patterns"):
+            # Create a table with pattern details
+            st.markdown("### All Available Patterns")
+            st.markdown("These are the system-defined patterns that detect sensitive information:")
+            
+            # Group patterns by category
+            categories = {
+                "Basic identifiers": ["credit_card", "ssn", "email", "phone_number", "msisdn", "ip_address", "date_of_birth", "address"],
+                "Credentials": ["password", "api_key", "jwt"],
+                "Cloud provider tokens": ["aws_access_key", "aws_secret_key", "google_api_key"],
+                "Financial information": ["iban", "bank_account"],
+                "Personal information": ["name", "passport", "uk_nino", "greek_amka", "greek_tax_id"],
+                "Classification terms": ["classification"],
+                "Private keys": ["private_key"],
+                "Other": ["url", "uuid"]
+            }
+            
+            # For each category, show the available patterns
+            for category, pattern_keys in categories.items():
+                st.markdown(f"#### {category}")
+                for key in pattern_keys:
+                    if key in pattern_set:
+                        st.code(f"{key}: {pattern_set[key]}")
+                st.markdown("---")
         
         # Auto-anonymize option
         auto_anonymize = st.toggle(
@@ -338,16 +366,29 @@ def show():
         st.button("Add Pattern", on_click=add_pattern)
         
         # Example patterns
-        with st.expander("Example Patterns"):
-            st.write("""
-            Here are some example regex patterns you can use:
+        with st.expander("Example Advanced Patterns"):
+            st.markdown("### Example Advanced Patterns")
+            st.markdown("Here are some example regex patterns you can use in your custom patterns:")
             
-            - Credit Card: `\\b(?:\\d{4}[ -]?){3}\\d{4}\\b`
-            - SSN: `\\b\\d{3}[-]?\\d{2}[-]?\\d{4}\\b`
-            - Email: `\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b`
-            - Phone Number: `\\b(?:\\+\\d{1,3}[-\\.\\s]?)?\\(?\\d{3}\\)?[-\\.\\s]?\\d{3}[-\\.\\s]?\\d{4}\\b`
-            - IP Address: `\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b`
-            """)
+            example_patterns = [
+                ("UK National Insurance Number (NINO)", "\\b(?!BG|GB|NK|KN|TN|NT|ZZ)([A-CEGHJ-PR-TW-Z]{2})\\d{6}[A-D]\\b"),
+                ("Greek Tax ID (AFM)", "\\b\\d{9}\\b"),
+                ("IBAN (International Bank Account Number)", "\\b[A-Z]{2}\\d{2}(?:[ ]?[0-9A-Z]){11,30}\\b"),
+                ("Private API Key Format", "\\b(?:api_key|apikey|access_token|token|secret|bearer)[\"']?\\s*[:=]\\s*[\"']?[A-Za-z0-9\\-_]{16,64}[\"']?\\b"),
+                ("Classification Terms", "\\b(confidential|strictly confidential|secret|internal use only|proprietary|classified)\\b"),
+                ("JWT (JSON Web Token)", "\\beyJ[A-Za-z0-9\\-_]+?\\.eyJ[A-Za-z0-9\\-_]+?\\.[A-Za-z0-9\\-_]+\\b")
+            ]
+            
+            # Display example patterns in a more readable format
+            for name, pattern in example_patterns:
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    st.markdown(f"**{name}:**")
+                with col2:
+                    st.code(pattern, language="text")
+                
+            st.markdown("---")
+            st.markdown("For more examples, check the 'View All Available Detection Patterns' section under Privacy Settings.")
         
         # Update settings if Save button is clicked
         if st.button("Save Custom Patterns"):
