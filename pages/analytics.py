@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
 from collections import Counter
-from database import get_session
+from database import get_session, session_scope
 from models import DetectionEvent, User, Message, Conversation
 from sqlalchemy import func, desc, case, distinct, extract, cast, String, Float
 from sqlalchemy.orm import aliased
@@ -37,8 +37,17 @@ def show():
         st.stop()
     
     # Check if there's any data in the database
-    with get_session() as session:
-        user_count = session.query(func.count(User.id)).scalar() or 0
+    user_count = 0
+    try:
+        with session_scope() as session:
+            if session:
+                user_count = session.query(func.count(User.id)).scalar() or 0
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                st.stop()
+    except Exception as e:
+        st.error(f"Error connecting to database: {str(e)}")
+        st.stop()
     
     if user_count == 0:
         st.info("No data available yet. Analytics will be populated as users start using the platform.")
@@ -98,19 +107,31 @@ def show_privacy_insights():
     else:
         start_date = datetime(2020, 1, 1)  # Effectively all time
     
-    with get_session() as session:
-        # Get detection events within the date range
-        events = session.query(DetectionEvent).filter(
-            DetectionEvent.timestamp >= start_date,
-            DetectionEvent.timestamp <= end_date
-        ).all()
-        
-        # Get message count for the same period for comparison
-        message_count = session.query(func.count(Message.id)).filter(
-            Message.timestamp >= start_date,
-            Message.timestamp <= end_date,
-            Message.role == "user"
-        ).scalar() or 0
+    # Get detection events with error handling
+    events = []
+    message_count = 0
+    
+    try:
+        with session_scope() as session:
+            if session:
+                # Get detection events within the date range
+                events = session.query(DetectionEvent).filter(
+                    DetectionEvent.timestamp >= start_date,
+                    DetectionEvent.timestamp <= end_date
+                ).all()
+                
+                # Get message count for the same period for comparison
+                message_count = session.query(func.count(Message.id)).filter(
+                    Message.timestamp >= start_date,
+                    Message.timestamp <= end_date,
+                    Message.role == "user"
+                ).scalar() or 0
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+    except Exception as e:
+        st.error(f"Error loading privacy data: {str(e)}")
+        return
     
     # Overview metrics
     st.subheader("Privacy Detection Overview")

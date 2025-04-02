@@ -116,7 +116,21 @@ AZURE_CLIENT_SECRET: ********
         try:
             with session_scope() as session:
                 if session:
-                    users = session.query(User).all()
+                    # Use eager loading to load all attributes we need
+                    users_query = session.query(User)
+                    
+                    # Convert query results to dictionaries to avoid detached instance issues
+                    for user in users_query:
+                        # Extract all needed attributes within the session
+                        user_dict = {
+                            "id": user.id,
+                            "username": user.username,
+                            "role": user.role,
+                            "created_at": user.created_at,
+                            "azure_id": user.azure_id if hasattr(user, 'azure_id') else None,
+                            "azure_name": user.azure_name if hasattr(user, 'azure_name') else None
+                        }
+                        users.append(user_dict)
                 else:
                     st.error("Unable to connect to database. Please try again later.")
                     return
@@ -124,18 +138,19 @@ AZURE_CLIENT_SECRET: ********
             st.error(f"Error loading users: {str(e)}")
             return
         
+        # Process user data outside the session (safe now that we have dictionaries)
         for user in users:
             # Check if user has Azure AD connection
-            is_azure_user = hasattr(user, 'azure_id') and user.azure_id is not None
-            azure_info = f"{user.azure_name} ({user.azure_id})" if is_azure_user else ""
+            is_azure_user = user["azure_id"] is not None
+            azure_info = f"{user['azure_name']} ({user['azure_id']})" if is_azure_user else ""
             
             user_data.append({
-                "ID": user.id,
-                "Username": user.username,
-                "Role": user.role,
+                "ID": user["id"],
+                "Username": user["username"],
+                "Role": user["role"],
                 "Azure AD": "✓" if is_azure_user else "",
                 "Azure Info": azure_info,
-                "Created": user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else ""
+                "Created": user["created_at"].strftime("%Y-%m-%d %H:%M") if user["created_at"] else ""
             })
         
         # Display user table
@@ -178,8 +193,8 @@ AZURE_CLIENT_SECRET: ********
         st.markdown("---")
         st.subheader("Modify User Role")
         
-        # Let admin select a user
-        user_options = {f"{user.username} (ID: {user.id})": user.id for user in users}
+        # Let admin select a user from the dictionary data we created
+        user_options = {f"{user['username']} (ID: {user['id']})": user['id'] for user in users}
         selected_user_display = st.selectbox("Select User", list(user_options.keys()), key="modify_user")
         selected_user_id = user_options[selected_user_display]
         
@@ -219,7 +234,8 @@ AZURE_CLIENT_SECRET: ********
         st.markdown("---")
         st.subheader("Delete User")
         
-        # Let admin select a user
+        # Let admin select a user from dictionary data
+        # We're reusing the same user_options dictionary from above
         delete_user_display = st.selectbox("Select User", list(user_options.keys()), key="delete_user")
         delete_user_id = user_options[delete_user_display]
         
