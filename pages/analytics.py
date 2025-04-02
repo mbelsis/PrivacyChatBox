@@ -4,23 +4,14 @@ from style import apply_custom_css
 # Apply custom CSS to hide default menu
 apply_custom_css()
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import time
-from collections import Counter
-from database import get_session, session_scope
+from database import session_scope
 from models import DetectionEvent, User, Message, Conversation
-from sqlalchemy import func, desc, case, distinct, extract, cast, String, Float
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy import func, distinct
 import shared_sidebar
 
 def show():
-    """Main function to display the analytics dashboard"""
-    # Clear sidebar state for fresh creation
-    if "sidebar_created" in st.session_state:
-        del st.session_state.sidebar_created
-    
+    """Main function to display the simplified analytics dashboard"""
     # Create sidebar with shared component
     shared_sidebar.create_sidebar("analytics_page")
     
@@ -36,821 +27,238 @@ def show():
         st.error("You must be an admin to access this page.")
         st.stop()
     
-    # Check if there's any data in the database
+    # Display summary statistics
+    get_system_overview()
+    
+    # Display user activity metrics
+    get_user_activity()
+    
+    # Display simple model usage by provider type
+    get_model_usage()
+    
+    # Display privacy metrics
+    get_privacy_metrics()
+
+def get_system_overview():
+    """Display basic system statistics"""
+    st.header("System Overview")
+    
+    # Initialize counters
     user_count = 0
-    try:
-        with session_scope() as session:
-            if session:
-                user_count = session.query(func.count(User.id)).scalar() or 0
-            else:
-                st.error("Unable to connect to database. Please try again later.")
-                st.stop()
-    except Exception as e:
-        st.error(f"Error connecting to database: {str(e)}")
-        st.stop()
-    
-    if user_count == 0:
-        st.info("No data available yet. Analytics will be populated as users start using the platform.")
-        
-        # Show empty state with placeholder metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Users", 0)
-        with col2:
-            st.metric("Total Conversations", 0)
-        with col3:
-            st.metric("Total Messages", 0)
-        
-        return
-    
-    # Tabs for different analytics views
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🔍 Privacy Insights", 
-        "🤖 Model Usage", 
-        "📊 User Activity",
-        "🧮 System Stats"
-    ])
-    
-    with tab1:
-        show_privacy_insights()
-    
-    with tab2:
-        show_model_usage()
-    
-    with tab3:
-        show_user_activity()
-    
-    with tab4:
-        show_system_stats()
-
-def show_privacy_insights():
-    """Display privacy-related insights"""
-    st.header("Privacy Insights")
-    
-    # Date range filter
-    col1, col2 = st.columns(2)
-    with col1:
-        date_range = st.selectbox(
-            "Time Period",
-            options=["Last 7 days", "Last 30 days", "Last 90 days", "All time"],
-            index=1
-        )
-    
-    # Convert date range to actual dates
-    end_date = datetime.now()
-    if date_range == "Last 7 days":
-        start_date = end_date - timedelta(days=7)
-    elif date_range == "Last 30 days":
-        start_date = end_date - timedelta(days=30)
-    elif date_range == "Last 90 days":
-        start_date = end_date - timedelta(days=90)
-    else:
-        start_date = datetime(2020, 1, 1)  # Effectively all time
-    
-    # Get detection events with error handling
-    events = []
-    message_count = 0
-    
-    try:
-        with session_scope() as session:
-            if session:
-                # Convert detection events to dictionaries to avoid detached instance errors
-                events_data = []
-                db_events = session.query(DetectionEvent).filter(
-                    DetectionEvent.timestamp >= start_date,
-                    DetectionEvent.timestamp <= end_date
-                ).all()
-                
-                # Extract data from each event to prevent detached object issues
-                for event in db_events:
-                    try:
-                        event_dict = {
-                            "id": event.id,
-                            "user_id": event.user_id,
-                            "timestamp": event.timestamp,
-                            "action": event.action,
-                            "severity": event.severity,
-                            "file_names": event.file_names
-                        }
-                        
-                        # Get detected patterns safely
-                        try:
-                            detected_patterns = event.get_detected_patterns()
-                            event_dict["detected_patterns"] = detected_patterns
-                        except Exception:
-                            event_dict["detected_patterns"] = {}
-                            
-                        events_data.append(event_dict)
-                    except Exception as e:
-                        st.warning(f"Error processing an event: {e}")
-                        continue
-                
-                # Store extracted data in events variable
-                events = events_data
-                
-                # Get message count for the same period for comparison
-                message_count = session.query(func.count(Message.id)).filter(
-                    Message.timestamp >= start_date,
-                    Message.timestamp <= end_date,
-                    Message.role == "user"
-                ).scalar() or 0
-            else:
-                st.error("Unable to connect to database. Please try again later.")
-                return
-    except Exception as e:
-        st.error(f"Error loading privacy data: {str(e)}")
-        st.exception(e)  # Show full exception for debugging
-        return
-    
-    # Overview metrics
-    st.subheader("Privacy Detection Overview")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        total_detections = len(events)
-        st.metric("Total Detections", total_detections)
-    
-    with col2:
-        detection_ratio = f"{(total_detections / message_count) * 100:.1f}%" if message_count > 0 else "0%"
-        st.metric("Detection Rate", detection_ratio, help="Percentage of user messages that triggered privacy detections")
-    
-    with col3:
-        anonymization_count = sum(1 for event in events if event.get('action') == "anonymize")
-        anonymization_rate = f"{(anonymization_count / total_detections) * 100:.1f}%" if total_detections > 0 else "0%"
-        st.metric("Anonymization Rate", anonymization_rate, help="Percentage of detections that were anonymized")
-    
-    # Prepare data for charts
-    if events:
-        # Severity distribution
-        severity_counts = Counter(event.get('severity', 'unknown') for event in events)
-        severity_df = pd.DataFrame({
-            'Severity': list(severity_counts.keys()),
-            'Count': list(severity_counts.values())
-        })
-        
-        # Detection types
-        pattern_types = []
-        for event in events:
-            patterns = event.get('detected_patterns', {})
-            if patterns:
-                for pattern_type in patterns.keys():
-                    pattern_types.append(pattern_type)
-        
-        pattern_counts = Counter(pattern_types)
-        pattern_df = pd.DataFrame({
-            'Pattern Type': list(pattern_counts.keys()),
-            'Count': list(pattern_counts.values())
-        }).sort_values('Count', ascending=False)
-        
-        # Time series data
-        dates = [event.get('timestamp').date() if isinstance(event.get('timestamp'), datetime) else None for event in events]
-        # Remove None values
-        dates = [date for date in dates if date is not None]
-        date_counts = Counter(dates)
-        date_df = pd.DataFrame({
-            'Date': list(date_counts.keys()),
-            'Count': list(date_counts.values())
-        }).sort_values('Date')
-        
-        # Display charts
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Detection Severity")
-            fig = px.pie(
-                severity_df, 
-                values='Count', 
-                names='Severity',
-                color='Severity',
-                color_discrete_map={'low': '#90EE90', 'medium': '#FFA500', 'high': '#FF6347'},
-                hole=0.4
-            )
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Most Common Detection Types")
-            fig = px.bar(
-                pattern_df.head(6), 
-                x='Pattern Type', 
-                y='Count',
-                color='Count',
-                color_continuous_scale='Viridis'
-            )
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Timeline of detections
-        st.subheader("Detection Trend")
-        fig = px.line(
-            date_df, 
-            x='Date', 
-            y='Count',
-            markers=True
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Raw data table
-        with st.expander("View Raw Detection Data"):
-            # Create a more readable dataframe
-            data = []
-            for event in events:
-                patterns = event.get('detected_patterns', {})
-                pattern_str = ', '.join([f"{k}: {len(v)}" for k, v in patterns.items()]) if patterns else "None"
-                data.append({
-                    'Timestamp': event.get('timestamp', 'Unknown'),
-                    'User ID': event.get('user_id', 'Unknown'),
-                    'Action': event.get('action', 'Unknown'),
-                    'Severity': event.get('severity', 'Unknown'),
-                    'Detected Patterns': pattern_str,
-                    'Files': event.get('file_names', 'None') if event.get('file_names') else "None"
-                })
-            
-            events_df = pd.DataFrame(data)
-            st.dataframe(events_df)
-    else:
-        st.info("No privacy detection events found for the selected time period.")
-
-def show_model_usage():
-    """Display AI model usage analytics"""
-    st.header("AI Model Usage Analytics")
-    
-    # Date range filter
-    col1, col2 = st.columns(2)
-    with col1:
-        date_range = st.selectbox(
-            "Time Period",
-            options=["Last 7 days", "Last 30 days", "Last 90 days", "All time"],
-            index=1,
-            key="model_date_range"
-        )
-    
-    # Convert date range to actual dates
-    end_date = datetime.now()
-    if date_range == "Last 7 days":
-        start_date = end_date - timedelta(days=7)
-    elif date_range == "Last 30 days":
-        start_date = end_date - timedelta(days=30)
-    elif date_range == "Last 90 days":
-        start_date = end_date - timedelta(days=90)
-    else:
-        start_date = datetime(2020, 1, 1)  # Effectively all time
-    
-    # Query model usage from database
-    conversation_data = []
-    users_with_settings = []
-    model_data = []
-    
-    try:
-        with session_scope() as session:
-            if session:
-                # We need to join with users to get their settings
-                # Since we don't have a direct model tracking table, we'll check user settings
-                # and count conversations during the period
-                User_alias = aliased(User)
-                
-                # Get conversation counts by user during period
-                conversation_data = session.query(
-                    User_alias.id,
-                    User_alias.username,
-                    func.count(Conversation.id).label('conversation_count'),
-                    func.count(Message.id).filter(Message.role == 'assistant').label('response_count')
-                ).join(
-                    Conversation, User_alias.id == Conversation.user_id
-                ).outerjoin(
-                    Message, Conversation.id == Message.conversation_id
-                ).filter(
-                    Conversation.created_at >= start_date,
-                    Conversation.created_at <= end_date
-                ).group_by(
-                    User_alias.id, User_alias.username
-                ).all()
-                
-                # Get all users and their settings in dictionary format
-                users_query = session.query(User).options(joinedload(User.settings)).all()
-                
-                # Process each user safely within the session
-                for user in users_query:
-                    # Get user's conversation counts
-                    user_conv_data = next((data for data in conversation_data if data[0] == user.id), None)
-                    
-                    if user_conv_data:
-                        conv_count = user_conv_data[2]
-                        response_count = user_conv_data[3]
-                        
-                        # Only include users with activity
-                        if conv_count > 0:
-                            settings = user.settings
-                            provider = settings.llm_provider if settings else "unknown"
-                            
-                            # Determine the specific model
-                            model = "unknown"
-                            if provider == "openai":
-                                model = settings.openai_model if settings else "unknown"
-                            elif provider == "claude":
-                                model = settings.claude_model if settings else "unknown"
-                            elif provider == "gemini":
-                                model = settings.gemini_model if settings else "unknown"
-                            elif provider == "local":
-                                model = "local_model"
-                            
-                            model_data.append({
-                                'user_id': user.id,
-                                'username': user.username,
-                                'provider': provider,
-                                'model': model,
-                                'conversations': conv_count,
-                                'responses': response_count
-                            })
-            else:
-                st.error("Unable to connect to database. Please try again later.")
-                return
-    except Exception as e:
-        st.error(f"Error loading model usage data: {str(e)}")
-        return
-    
-    # Create a DataFrame for visualization
-    if model_data:
-        df = pd.DataFrame(model_data)
-        
-        # Overall metrics
-        st.subheader("Model Usage Overview")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            total_conversations = df['conversations'].sum()
-            st.metric("Total Conversations", total_conversations)
-        with col2:
-            total_responses = df['responses'].sum()
-            st.metric("Total AI Responses", total_responses)
-        with col3:
-            avg_responses = round(total_responses / total_conversations, 1) if total_conversations > 0 else 0
-            st.metric("Avg. Responses per Conversation", avg_responses)
-        
-        # Provider breakdown
-        st.subheader("Provider Distribution")
-        provider_counts = df.groupby('provider').agg({'responses': 'sum'}).reset_index()
-        
-        fig = px.pie(
-            provider_counts, 
-            values='responses', 
-            names='provider',
-            color='provider',
-            color_discrete_map={
-                'openai': '#74aa9c', 
-                'claude': '#ac6aac', 
-                'gemini': '#4285F4',
-                'local': '#ffa500',
-                'unknown': '#888888'
-            },
-            hole=0.4
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Model breakdown
-        st.subheader("Top Models Used")
-        model_counts = df.groupby('model').agg({'responses': 'sum'}).reset_index()
-        model_counts = model_counts.sort_values('responses', ascending=False)
-        
-        fig = px.bar(
-            model_counts.head(6), 
-            x='model', 
-            y='responses',
-            color='model',
-            labels={'model': 'Model', 'responses': 'Number of Responses'}
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # User model preferences
-        st.subheader("User Model Preferences")
-        user_model_df = df[['username', 'provider', 'model', 'responses']].sort_values('responses', ascending=False)
-        
-        # Show as a table
-        with st.expander("View User Model Preferences"):
-            st.dataframe(user_model_df)
-    else:
-        st.info("No model usage data found for the selected time period.")
-
-def show_user_activity():
-    """Display user activity analytics"""
-    st.header("User Activity Analytics")
-    
-    # Date range filter
-    col1, col2 = st.columns(2)
-    with col1:
-        date_range = st.selectbox(
-            "Time Period",
-            options=["Last 7 days", "Last 30 days", "Last 90 days", "All time"],
-            index=1,
-            key="user_date_range"
-        )
-    
-    # Convert date range to actual dates
-    end_date = datetime.now()
-    if date_range == "Last 7 days":
-        start_date = end_date - timedelta(days=7)
-    elif date_range == "Last 30 days":
-        start_date = end_date - timedelta(days=30)
-    elif date_range == "Last 90 days":
-        start_date = end_date - timedelta(days=90)
-    else:
-        start_date = datetime(2020, 1, 1)  # Effectively all time
-    
-    # Query user activity
-    user_metrics = []
-    daily_activity = []
-    hourly_activity = []
-    
-    try:
-        with session_scope() as session:
-            if session:
-                # Get basic user metrics
-                user_metrics = session.query(
-                    User.id,
-                    User.username,
-                    User.role,
-                    User.created_at,
-                    func.count(distinct(Conversation.id)).label('conversation_count'),
-                    func.count(Message.id).filter(Message.role == 'user').label('message_count'),
-                    func.count(Message.id).filter(Message.role == 'assistant').label('response_count')
-                ).outerjoin(
-                    Conversation, User.id == Conversation.user_id
-                ).outerjoin(
-                    Message, Conversation.id == Message.conversation_id
-                ).filter(
-                    User.created_at <= end_date
-                ).group_by(
-                    User.id, User.username, User.role, User.created_at
-                ).all()
-                
-                # Get time-based activity data
-                daily_activity = session.query(
-                    func.date(Message.timestamp).label('date'),
-                    func.count(Message.id).label('message_count')
-                ).filter(
-                    Message.timestamp >= start_date,
-                    Message.timestamp <= end_date
-                ).group_by(
-                    func.date(Message.timestamp)
-                ).order_by(
-                    func.date(Message.timestamp)
-                ).all()
-                
-                # Get hourly distribution
-                hourly_activity = session.query(
-                    func.extract('hour', Message.timestamp).label('hour'),
-                    func.count(Message.id).label('message_count')
-                ).filter(
-                    Message.timestamp >= start_date,
-                    Message.timestamp <= end_date
-                ).group_by(
-                    func.extract('hour', Message.timestamp)
-                ).order_by(
-                    func.extract('hour', Message.timestamp)
-                ).all()
-            else:
-                st.error("Unable to connect to database. Please try again later.")
-                return
-    except Exception as e:
-        st.error(f"Error loading user activity data: {str(e)}")
-        return
-    
-    # Create DataFrames for visualization
-    user_df = pd.DataFrame([
-        {
-            'User ID': um[0],
-            'Username': um[1],
-            'Role': um[2],
-            'Join Date': um[3],
-            'Conversations': um[4],
-            'Messages Sent': um[5],
-            'Responses Received': um[6]
-        }
-        for um in user_metrics
-    ])
-    
-    daily_df = pd.DataFrame([
-        {'Date': da[0], 'Message Count': da[1]}
-        for da in daily_activity
-    ])
-    
-    hourly_df = pd.DataFrame([
-        {'Hour': ha[0], 'Message Count': ha[1]}
-        for ha in hourly_activity
-    ])
-    
-    # Fill in missing hours
-    all_hours = pd.DataFrame({'Hour': range(24)})
-    hourly_df = pd.merge(all_hours, hourly_df, on='Hour', how='left').fillna(0)
-    
-    # Display dashboards
-    if not user_df.empty:
-        # Active user metrics
-        active_users = len(user_df[user_df['Messages Sent'] > 0])
-        total_users = len(user_df)
-        
-        st.subheader("User Overview")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Total Users", total_users)
-        
-        with col2:
-            st.metric("Active Users", active_users)
-        
-        with col3:
-            active_ratio = f"{(active_users / total_users) * 100:.1f}%" if total_users > 0 else "0%"
-            st.metric("User Activation Rate", active_ratio)
-        
-        # User activity graphs
-        st.subheader("User Engagement")
-        
-        # Most active users
-        active_user_df = user_df.sort_values('Messages Sent', ascending=False).head(5)
-        
-        fig = px.bar(
-            active_user_df,
-            x='Username',
-            y=['Messages Sent', 'Responses Received'],
-            barmode='group',
-            labels={'value': 'Count', 'variable': 'Type'},
-            title="Most Active Users"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Daily activity trend
-        if not daily_df.empty:
-            st.subheader("Daily Activity Trend")
-            fig = px.line(
-                daily_df,
-                x='Date',
-                y='Message Count',
-                markers=True,
-                title="Messages Per Day"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Hourly distribution
-        if not hourly_df.empty:
-            st.subheader("Time of Day Activity")
-            fig = px.bar(
-                hourly_df,
-                x='Hour',
-                y='Message Count',
-                color='Message Count',
-                color_continuous_scale='Viridis',
-                title="Message Distribution by Hour of Day"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # User table
-        with st.expander("View All User Data"):
-            st.dataframe(user_df.sort_values('Messages Sent', ascending=False))
-    else:
-        st.info("No user activity data found for the selected time period.")
-
-def show_system_stats():
-    """Display system statistics"""
-    st.header("System Statistics")
-    
-    # Initialize variables
-    user_count = 0
-    conversation_count = 0
+    conversation_count = 0 
     message_count = 0
     detection_count = 0
-    azure_users_count = 0
-    total_storage = 0
-    oldest_message = None
-    newest_message = None
-    avg_message_length = 0
     
     try:
         with session_scope() as session:
             if session:
-                # Total database records
+                # Get basic counts using simple aggregations
                 user_count = session.query(func.count(User.id)).scalar() or 0
                 conversation_count = session.query(func.count(Conversation.id)).scalar() or 0
                 message_count = session.query(func.count(Message.id)).scalar() or 0
                 detection_count = session.query(func.count(DetectionEvent.id)).scalar() or 0
-                
-                # Azure AD statistics
-                azure_users_count = session.query(func.count(User.id)).filter(User.azure_id != None).scalar() or 0
-                
-                # Get some database stats
-                total_storage = session.query(
-                    func.sum(func.length(cast(Message.content, String)))
-                ).scalar() or 0
-                
-                # Get the oldest and newest records
-                oldest_message = session.query(func.min(Message.timestamp)).scalar()
-                newest_message = session.query(func.max(Message.timestamp)).scalar()
-                
-                # Calculate average message length
-                avg_message_length = session.query(
-                    func.avg(func.length(cast(Message.content, String)))
-                ).scalar() or 0
             else:
-                st.error("Unable to connect to database. Please try again later.")
+                st.warning("Could not connect to the database.")
                 return
     except Exception as e:
-        st.error(f"Error loading system statistics: {str(e)}")
+        st.error(f"Database error: {str(e)}")
         return
-        
-    # Convert to MB
-    total_storage_mb = total_storage / (1024 * 1024)
     
-    # Display metrics
-    st.subheader("Database Overview")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Users", user_count)
-    with col2:
-        st.metric("Total Conversations", conversation_count)
-    with col3:
-        st.metric("Total Messages", message_count)
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Detection Events", detection_count)
-    with col2:
-        st.metric("Storage Used", f"{total_storage_mb:.2f} MB")
-    with col3:
-        st.metric("Avg Message Length", f"{avg_message_length:.0f} chars")
-    
-    # Azure AD statistics
-    st.subheader("Authentication Stats")
-    
-    col1, col2, col3 = st.columns(3)
+    # Display metrics in a clean grid
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("Total Users", user_count)
     
     with col2:
-        st.metric("Azure AD Users", azure_users_count)
-        
+        st.metric("Conversations", conversation_count)
+    
     with col3:
-        azure_percentage = (azure_users_count / user_count * 100) if user_count > 0 else 0
-        st.metric("Azure AD %", f"{azure_percentage:.1f}%")
+        st.metric("Messages", message_count)
     
-    # Add a pie chart for Azure AD vs regular users
-    if user_count > 0:
-        auth_data = pd.DataFrame([
-            {"Auth Type": "Azure AD", "Count": azure_users_count},
-            {"Auth Type": "Regular", "Count": user_count - azure_users_count}
-        ])
-        
-        fig = px.pie(
-            auth_data, 
-            values='Count', 
-            names='Auth Type',
-            color='Auth Type',
-            color_discrete_map={'Azure AD': '#0078d4', 'Regular': '#00b294'},
-            hole=0.4
-        )
-        fig.update_layout(
-            title='Authentication Method Distribution',
-            height=300
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # System uptime and activity period
-    st.subheader("System Activity")
-    
-    col1, col2 = st.columns(2)
-    
-    # Initialize days_active
-    days_active = 0
-    
-    with col1:
-        if oldest_message and newest_message:
-            days_active = (newest_message - oldest_message).days
-            # If less than 1 day, set to 1 to avoid division by zero
-            days_active = max(1, days_active)
-            st.metric("Days Active", days_active)
-        else:
-            st.metric("Days Active", 0)
-    
-    with col2:
-        messages_per_day = message_count / days_active if days_active > 0 else 0
-        st.metric("Avg Messages/Day", f"{messages_per_day:.1f}")
-    
-    # Database growth over time
-    st.subheader("Database Growth")
-    
-    # Initialize message growth data
-    message_growth = []
+    with col4:
+        st.metric("Privacy Detections", detection_count)
+
+def get_user_activity():
+    """Display simplified user activity metrics"""
+    st.header("User Activity")
     
     try:
         with session_scope() as session:
             if session:
-                # Query message count by date
-                message_growth = session.query(
-                    func.date(Message.timestamp).label('date'),
-                    func.count(Message.id).label('message_count')
+                # Get users with their activity counts
+                users_data = []
+                users = session.query(
+                    User.id,
+                    User.username,
+                    User.role,
+                    func.count(distinct(Conversation.id)).label('conversations'),
+                    func.count(Message.id).filter(Message.role == 'user').label('messages')
+                ).outerjoin(
+                    Conversation, User.id == Conversation.user_id
+                ).outerjoin(
+                    Message, Conversation.id == Message.conversation_id
                 ).group_by(
-                    func.date(Message.timestamp)
-                ).order_by(
-                    func.date(Message.timestamp)
+                    User.id, User.username, User.role
                 ).all()
+                
+                # Extract data safely within the session
+                for user in users:
+                    users_data.append({
+                        'user_id': user[0],
+                        'username': user[1],
+                        'role': user[2],
+                        'conversations': user[3],
+                        'messages': user[4]
+                    })
+                
+                # Count active users (those with at least one message)
+                total_users = len(users_data)
+                active_users = sum(1 for user in users_data if user['messages'] > 0)
+                active_rate = f"{(active_users / total_users) * 100:.1f}%" if total_users > 0 else "0%"
+                
+                # Display user activity metrics
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Active Users", f"{active_users} / {total_users}")
+                with col2:
+                    st.metric("Activity Rate", active_rate)
+                
+                # Create and display a dataframe with user activity
+                if users_data:
+                    df = pd.DataFrame(users_data)
+                    
+                    # Sort by message count
+                    if not df.empty and 'messages' in df.columns:
+                        df = df.sort_values('messages', ascending=False)
+                        
+                        # Show the table
+                        st.subheader("User Activity Details")
+                        st.dataframe(df[['username', 'role', 'conversations', 'messages']])
+                else:
+                    st.info("No user activity data available.")
             else:
-                st.error("Unable to connect to database. Please try again later.")
-                return
+                st.warning("Could not connect to the database.")
     except Exception as e:
-        st.error(f"Error loading message growth data: {str(e)}")
-        return
-    
-    if message_growth:
-        # Create DataFrame and calculate cumulative sum
-        growth_df = pd.DataFrame([
-            {'Date': mg[0], 'Daily Count': mg[1]}
-            for mg in message_growth
-        ])
-        
-        growth_df['Cumulative Count'] = growth_df['Daily Count'].cumsum()
-        
-        # Create the chart
-        fig = go.Figure()
-        
-        # Add daily count as bars
-        fig.add_trace(go.Bar(
-            x=growth_df['Date'],
-            y=growth_df['Daily Count'],
-            name='Daily Count',
-            marker_color='lightblue'
-        ))
-        
-        # Add cumulative count as line
-        fig.add_trace(go.Scatter(
-            x=growth_df['Date'],
-            y=growth_df['Cumulative Count'],
-            name='Cumulative Count',
-            mode='lines+markers',
-            line=dict(color='darkblue', width=2),
-            marker=dict(size=4)
-        ))
-        
-        # Update layout
-        fig.update_layout(
-            title='Message Growth Over Time',
-            xaxis_title='Date',
-            yaxis_title='Count',
-            hovermode='x',
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            )
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No message history found to display growth chart.")
-    
-    # Database performance
-    st.subheader("Database Performance Check")
-    
-    # Initialize performance metrics
-    query_time = 0
-    complex_query_time = 0
+        st.error(f"Error retrieving user activity: {str(e)}")
+
+def get_model_usage():
+    """Display simplified model usage metrics"""
+    st.header("AI Model Usage")
     
     try:
-        # Simple DB performance test
-        start_time = time.time()
         with session_scope() as session:
             if session:
-                session.query(User).limit(1).all()
+                # Count users by their chosen AI provider
+                providers = []
+                settings_data = session.query(
+                    User.id,
+                    User.username,
+                    User.settings.llm_provider
+                ).join(
+                    User.settings
+                ).all()
+                
+                # Safely extract data
+                provider_counts = {}
+                for setting in settings_data:
+                    provider = setting[2] if setting[2] else "unknown"
+                    if provider in provider_counts:
+                        provider_counts[provider] += 1
+                    else:
+                        provider_counts[provider] = 1
+                
+                for provider, count in provider_counts.items():
+                    providers.append({
+                        'provider': provider,
+                        'count': count
+                    })
+                
+                # Display model usage data
+                if providers:
+                    df = pd.DataFrame(providers)
+                    
+                    # Display metrics
+                    st.subheader("Provider Distribution")
+                    st.dataframe(df)
+                    
+                    # Show basic message metrics
+                    message_count = session.query(func.count(Message.id)).filter(
+                        Message.role == 'assistant'
+                    ).scalar() or 0
+                    
+                    st.metric("Total AI Responses", message_count)
+                else:
+                    st.info("No model usage data available.")
             else:
-                st.error("Unable to connect to database. Please try again later.")
-                return
-        query_time = time.time() - start_time
-        
-        # More complex query
-        start_time = time.time()
-        with session_scope() as session:
-            if session:
-                session.query(User).join(Conversation).join(Message).limit(10).all()
-            else:
-                st.error("Unable to connect to database. Please try again later.")
-                return
-        complex_query_time = time.time() - start_time
+                st.warning("Could not connect to the database.")
     except Exception as e:
-        st.error(f"Error testing database performance: {str(e)}")
-        return
-        
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Simple Query Time", f"{query_time*1000:.2f} ms")
+        st.error(f"Error retrieving model usage: {str(e)}")
+
+def get_privacy_metrics():
+    """Display simplified privacy-related metrics"""
+    st.header("Privacy Insights")
     
-    with col2:
-        st.metric("Complex Query Time", f"{complex_query_time*1000:.2f} ms")
-    
-    # Warning if slow
-    if complex_query_time > 0.5:  # More than 500ms is slow
-        st.warning("Database queries are running slowly. Consider optimization.")
-    elif complex_query_time > 0.1:  # More than 100ms is worth noting
-        st.info("Database performance is acceptable but could be improved.")
-    else:
-        st.success("Database is performing well!")
+    try:
+        with session_scope() as session:
+            if session:
+                # Get basic detection event counts
+                total_detections = session.query(func.count(DetectionEvent.id)).scalar() or 0
+                
+                if total_detections > 0:
+                    # Count by severity
+                    severity_data = []
+                    severity_counts = session.query(
+                        DetectionEvent.severity,
+                        func.count(DetectionEvent.id)
+                    ).group_by(
+                        DetectionEvent.severity
+                    ).all()
+                    
+                    # Extract data safely
+                    for severity in severity_counts:
+                        severity_data.append({
+                            'severity': severity[0],
+                            'count': severity[1],
+                            'percentage': f"{(severity[1] / total_detections) * 100:.1f}%"
+                        })
+                    
+                    # Count by action type
+                    action_data = []
+                    action_counts = session.query(
+                        DetectionEvent.action,
+                        func.count(DetectionEvent.id)
+                    ).group_by(
+                        DetectionEvent.action
+                    ).all()
+                    
+                    # Extract data safely
+                    for action in action_counts:
+                        action_data.append({
+                            'action': action[0],
+                            'count': action[1],
+                            'percentage': f"{(action[1] / total_detections) * 100:.1f}%"
+                        })
+                    
+                    # Display metrics
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.subheader("Detection Severity")
+                        if severity_data:
+                            st.dataframe(pd.DataFrame(severity_data))
+                        else:
+                            st.info("No severity data available.")
+                    
+                    with col2:
+                        st.subheader("Actions Taken")
+                        if action_data:
+                            st.dataframe(pd.DataFrame(action_data))
+                        else:
+                            st.info("No action data available.")
+                else:
+                    st.info("No privacy detection events recorded yet.")
+            else:
+                st.warning("Could not connect to the database.")
+    except Exception as e:
+        st.error(f"Error retrieving privacy metrics: {str(e)}")
