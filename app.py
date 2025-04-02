@@ -207,397 +207,380 @@ with st.sidebar:
     
     # Show navigation menu if authenticated
     else:
-        # Add custom CSS for beautiful sidebar design
+        # Create an app-like interface with completely new layout
         st.markdown("""
         <style>
-        /* Sidebar menu styling */
-        .menu-container {
+        /* New modern sidebar style */
+        section.main div.block-container {
+            padding-top: 1rem;
+        }
+        
+        [data-testid="stSidebar"] {
+            padding-top: 0;
             background-color: #f8f9fa;
-            border-radius: 10px;
-            padding: 10px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         
-        .dark-mode .menu-container {
-            background-color: #2d3035;
-            color: #ffffff;
+        .dark-mode [data-testid="stSidebar"] {
+            background-color: #1e1e2e;
         }
         
-        .menu-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-            background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
-            padding: 10px;
-            border-radius: 8px;
+        /* Custom navigation menu */
+        .nav-container {
+            margin: -1rem -1rem 0 -1rem;
+            background-color: #4285F4;
             color: white;
+            padding: 1.5rem 1rem 1rem 1rem;
+            border-radius: 0 0 20px 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
         
-        .nav-button {
+        .dark-mode .nav-container {
+            background-color: #3949ab;
+        }
+        
+        .logo-area {
             display: flex;
             align-items: center;
-            background-color: #ffffff;
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            transition: all 0.2s ease;
-            color: #333;
-            text-decoration: none;
-            border-left: 4px solid transparent;
+            margin-bottom: 1.2rem;
         }
         
-        .dark-mode .nav-button {
-            background-color: #40444b;
-            color: #ffffff;
+        .app-logo {
+            font-size: 22px;
+            font-weight: 700;
+            margin-left: 10px;
         }
         
-        .nav-button:hover {
-            transform: translateX(5px);
-            border-left: 4px solid #4285F4;
-            background-color: #f0f5ff;
+        .app-version {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-left: 5px;
         }
         
-        .dark-mode .nav-button:hover {
-            background-color: #4e5359;
-        }
-        
-        .nav-icon {
-            font-size: 18px;
-            margin-right: 10px;
-            width: 24px;
-            text-align: center;
-        }
-        
-        .nav-text {
-            font-size: 16px;
-            font-weight: 500;
-        }
-        
-        .active-nav {
-            background-color: #e8f0fe;
-            border-left: 4px solid #4285F4;
-        }
-        
-        .dark-mode .active-nav {
-            background-color: #4e5359;
-            border-left: 4px solid #4285F4;
-        }
-        
-        .user-profile {
+        .user-area {
             display: flex;
             align-items: center;
-            background-color: #f0f2f5;
+            background-color: rgba(255, 255, 255, 0.15);
             padding: 10px;
-            border-radius: 8px;
-            margin: 15px 0;
-        }
-        
-        .dark-mode .user-profile {
-            background-color: #40444b;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
         }
         
         .user-avatar {
-            background-color: #4285F4;
-            color: white;
-            width: 40px;
-            height: 40px;
+            width: 42px;
+            height: 42px;
+            background-color: white;
+            color: #4285F4;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            margin-right: 10px;
+            font-size: 18px;
+            margin-right: 12px;
         }
         
-        .user-info {
-            display: flex;
-            flex-direction: column;
+        .dark-mode .user-avatar {
+            color: #3949ab;
+        }
+        
+        .user-details {
+            flex-grow: 1;
         }
         
         .user-name {
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .dark-mode .user-name {
-            color: #ffffff;
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 2px;
         }
         
         .user-role {
-            font-size: 12px;
-            color: #666;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
         }
         
-        .dark-mode .user-role {
-            color: #cccccc;
+        /* New menu buttons style */
+        .menu-section {
+            margin: 0 -1rem;
+            padding: 0 1rem;
+        }
+        
+        .menu-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #555;
+            margin: 20px 0 10px 15px;
+            font-weight: 600;
+        }
+        
+        .dark-mode .menu-title {
+            color: #a0a0a0;
+        }
+        
+        .menu-button {
+            display: block; /* Not flex, block worked better with Streamlit structure */
+            background-color: transparent;
+            color: #333;
+            border: none;
+            padding: 14px 15px;
+            margin-bottom: 5px;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            cursor: pointer;
+            text-align: left;
+            width: 100%;
+        }
+        
+        .dark-mode .menu-button {
+            color: #e5e5e5;
+        }
+        
+        .menu-button:hover {
+            background-color: rgba(66, 133, 244, 0.1);
+        }
+        
+        .dark-mode .menu-button:hover {
+            background-color: rgba(97, 130, 237, 0.2);
+        }
+        
+        .menu-button.active {
+            background-color: rgba(66, 133, 244, 0.15);
+            color: #4285F4;
+            font-weight: 500;
+        }
+        
+        .dark-mode .menu-button.active {
+            background-color: rgba(97, 130, 237, 0.25);
+            color: #8ab4f8;
+        }
+        
+        .menu-icon {
+            display: inline-block;
+            width: 24px;
+            text-align: center;
+            margin-right: 12px;
+        }
+        
+        /* Adjusting regular buttons to use the new style */
+        .menu-section button {
+            width: 100%;
+            border: none;
+            background-color: transparent;
+            text-align: left;
+            margin-bottom: 5px;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            padding: 14px 15px;
+            font-weight: normal;
+            display: flex;
+            align-items: center;
+        }
+        
+        .menu-section button span {
+            margin-left: 12px;
+        }
+        
+        .menu-section button:hover {
+            background-color: rgba(66, 133, 244, 0.1);
+        }
+        
+        .dark-mode .menu-section button:hover {
+            background-color: rgba(97, 130, 237, 0.2);
+        }
+        
+        /* Admin section styling */
+        .admin-section {
+            margin-top: 20px;
+        }
+        
+        .admin-section .menu-title {
+            color: #9333ea;
+        }
+        
+        .dark-mode .admin-section .menu-title {
+            color: #c084fc;
+        }
+        
+        .admin-button {
+            background: linear-gradient(135deg, rgba(147, 51, 234, 0.05), rgba(192, 132, 252, 0.05));
+        }
+        
+        .admin-button:hover {
+            background: linear-gradient(135deg, rgba(147, 51, 234, 0.1), rgba(192, 132, 252, 0.1));
+        }
+        
+        /* Special button styling for theme toggle and logout */
+        .footer-section {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            padding: 0 1rem;
         }
         
         .footer-button {
-            background-color: transparent;
-            border: 1px solid #ddd;
-            padding: 8px 15px;
-            border-radius: 20px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            margin-right: 8px;
+            background-color: #f0f2f5;
             color: #555;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 15px;
+            width: 48%;
+            margin: 0 1% 0 0;
             transition: all 0.2s ease;
+            cursor: pointer;
         }
         
         .dark-mode .footer-button {
-            border-color: #555;
-            color: #ccc;
+            background-color: #2d3035;
+            color: #d0d0d0;
         }
         
         .footer-button:hover {
-            background-color: #f5f5f5;
-            color: #333;
+            background-color: #e5e7eb;
         }
         
         .dark-mode .footer-button:hover {
-            background-color: #444;
-            color: #fff;
+            background-color: #3d4045;
         }
         
-        .logout-button {
-            background-color: #ff4b4b;
-            color: white;
-            border: none;
+        .footer-button.danger {
+            color: #ef4444;
         }
         
-        .dark-mode .logout-button {
-            background-color: #d32f2f;
+        .footer-button.danger:hover {
+            background-color: rgba(239, 68, 68, 0.1);
         }
         
-        .logout-button:hover {
-            background-color: #d32f2f;
-            color: white;
-        }
-
-        .admin-section {
-            border-top: 1px solid #eee;
-            margin-top: 10px;
-            padding-top: 10px;
+        .dark-mode .footer-button.danger:hover {
+            background-color: rgba(239, 68, 68, 0.15);
         }
         
-        .dark-mode .admin-section {
-            border-top-color: #444;
-        }
         </style>
         """, unsafe_allow_html=True)
         
-        # User profile section
+        # New Top Menu Bar with user profile
+        st.markdown("""
+        <div class="nav-container">
+            <div class="logo-area">
+                <span style="font-size: 24px;">🔒</span>
+                <span class="app-logo">PrivacyChatBoX</span>
+                <span class="app-version">v2.0</span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # User profile in the header
         user_initial = st.session_state.username[0].upper() if st.session_state.username else "U"
         role_display = "Administrator" if st.session_state.role == "admin" else "User"
         
         st.markdown(f"""
-        <div class="user-profile">
-            <div class="user-avatar">{user_initial}</div>
-            <div class="user-info">
-                <span class="user-name">{st.session_state.username}</span>
-                <span class="user-role">{role_display}</span>
+            <div class="user-area">
+                <div class="user-avatar">{user_initial}</div>
+                <div class="user-details">
+                    <div class="user-name">{st.session_state.username}</div>
+                    <div class="user-role">{role_display}</div>
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Navigation menu container
+        # Main navigation section
         st.markdown("""
-        <div class="menu-container">
-            <div class="menu-header">
-                <span style="margin-right: 10px;">📱</span>
-                <span>Main Navigation</span>
-            </div>
+        <div class="menu-section">
+            <div class="menu-title">Main Navigation</div>
+        </div>
         """, unsafe_allow_html=True)
         
-        # Custom styles for the navigation buttons to make them look modern
-        st.markdown("""
-        <style>
-        /* Override default Streamlit button styling */
-        .stButton > button {
-            width: 100%;
-            border: none;
-            background-color: white;
-            color: #333;
-            text-align: left;
-            padding: 10px 15px;
-            margin-bottom: 8px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            transition: all 0.2s ease;
-            border-left: 4px solid transparent;
-            font-weight: 500;
-        }
-        
-        .stButton > button:hover {
-            transform: translateX(5px);
-            border-left: 4px solid #4285F4;
-            background-color: #f0f5ff;
-        }
-        
-        /* Dark mode button styles */
-        body.dark .stButton > button {
-            background-color: #40444b;
-            color: #ffffff;
-        }
-        
-        body.dark .stButton > button:hover {
-            background-color: #4e5359;
-        }
-        
-        /* Admin section styling */
-        .admin-section-header {
-            margin-top: 20px;
-            margin-bottom: 10px;
-            padding: 10px;
-            background: linear-gradient(90deg, #6a3093 0%, #a044ff 100%);
-            border-radius: 8px;
-            color: white;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-        }
-        
-        /* Footer button styling */
-        .footer-buttons .stButton > button {
-            background-color: transparent;
-            border: 1px solid #ddd;
-            border-radius: 20px;
-            color: #555;
-            margin-right: 5px;
-            width: auto;
-            font-size: 14px;
-            display: inline-flex;
-            justify-content: center;
-        }
-        
-        body.dark .footer-buttons .stButton > button {
-            border-color: #555;
-            color: #ccc;
-        }
-        
-        .footer-buttons .stButton > button:hover {
-            background-color: #f5f5f5;
-            color: #333;
-            transform: none;
-            border-left: 1px solid #ddd;
-        }
-        
-        body.dark .footer-buttons .stButton > button:hover {
-            background-color: #444;
-            color: #fff;
-        }
-        
-        /* Logout button special styling */
-        .logout-button .stButton > button {
-            color: #ff4b4b;
-            border-color: #ff4b4b;
-        }
-        
-        .logout-button .stButton > button:hover {
-            background-color: #ff4b4b;
-            color: white;
-        }
-        
-        body.dark .logout-button .stButton > button {
-            color: #ff6b6b;
-            border-color: #ff6b6b;
-        }
-        
-        body.dark .logout-button .stButton > button:hover {
-            background-color: #d32f2f;
-            color: white;
-        }
-        
-        /* Icon styling for buttons */
-        .nav-label {
-            display: flex;
-            align-items: center;
-            width: 100%;
-        }
-        
-        .icon-wrapper {
-            margin-right: 10px;
-            width: 24px;
-            text-align: center;
-            font-size: 16px;
-        }
-        
-        .label-text {
-            flex-grow: 1;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Main Navigation Buttons
-        if st.button(
-            "💬 Chat", 
-            key="chat_button",
-            help="Go to chat interface"
-        ):
+        # Use custom styling for buttons with icons in spans
+        chat_button = st.button("💬 Chat", key="chat_btn", use_container_width=True)
+        if chat_button:
             st.switch_page("pages/chat.py")
-            
-        if st.button(
-            "📜 History", 
-            key="history_button",
-            help="View conversation history"
-        ):
+        
+        history_button = st.button("📜 History", key="history_btn", use_container_width=True)
+        if history_button:
             st.switch_page("pages/history.py")
-            
-        if st.button(
-            "⚙️ Settings", 
-            key="settings_button",
-            help="Configure application settings"
-        ):
+        
+        settings_button = st.button("⚙️ Settings", key="settings_btn", use_container_width=True)
+        if settings_button:
             st.switch_page("pages/settings.py")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Admin section for admin users
+            
+        # Admin section with special styling
         if st.session_state.role == "admin":
             st.markdown("""
-            <div class="admin-section-header">
-                <span style="margin-right: 10px;">👑</span>
-                <span>Admin Tools</span>
+            <div class="admin-section">
+                <div class="menu-title">Admin Tools</div>
             </div>
             """, unsafe_allow_html=True)
             
-            # Admin navigation
-            if st.button(
-                "🔧 Admin Panel", 
-                key="admin_button",
-                help="Administrative controls"
-            ):
+            admin_button = st.button("👑 Admin Panel", key="admin_btn", use_container_width=True)
+            if admin_button:
                 st.switch_page("pages/admin.py")
-                
-            if st.button(
-                "📊 Analytics Dashboard", 
-                key="analytics_button",
-                help="View usage statistics and trends"
-            ):
+            
+            analytics_button = st.button("📊 Analytics", key="analytics_btn", use_container_width=True) 
+            if analytics_button:
                 st.switch_page("pages/analytics.py")
-                
-        # Footer buttons styled differently
-        st.markdown("<div class='footer-buttons'>", unsafe_allow_html=True)
-        col1, col2 = st.columns([1, 1])
+        
+        # Footer with theme and logout buttons using native Streamlit
+        col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🌙 Theme", key="theme_toggle", help="Toggle between dark and light mode"):
+            if st.button("🌙 Toggle Theme", key="theme_btn"):
                 toggle_dark_mode()
-        
+                
         with col2:
-            st.markdown("<div class='logout-button'>", unsafe_allow_html=True)
-            if st.button("🚪 Logout", key="logout_button", help="Log out of your account"):
+            if st.button("🚪 Logout", key="logout_btn"):
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-        st.markdown("</div>", unsafe_allow_html=True)
+                
+        # Add CSS to style these buttons
+        st.markdown("""
+        <style>
+        /* Style the footer buttons */
+        [data-testid="stHorizontalBlock"] button {
+            background-color: #f0f2f5;
+            color: #555;
+            border: none;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            margin-top: 30px;
+        }
+        
+        [data-testid="stHorizontalBlock"] button:hover {
+            background-color: #e5e7eb;
+        }
+        
+        [data-testid="stHorizontalBlock"] [data-baseweb="column"]:nth-child(2) button {
+            color: #ef4444;
+        }
+        
+        [data-testid="stHorizontalBlock"] [data-baseweb="column"]:nth-child(2) button:hover {
+            background-color: rgba(239, 68, 68, 0.1);
+        }
+        
+        body.dark [data-testid="stHorizontalBlock"] button {
+            background-color: #2d3035;
+            color: #d0d0d0;
+        }
+        
+        body.dark [data-testid="stHorizontalBlock"] button:hover {
+            background-color: #3d4045;
+        }
+        
+        body.dark [data-testid="stHorizontalBlock"] [data-baseweb="column"]:nth-child(2) button {
+            color: #ff6b6b;
+        }
+        
+        body.dark [data-testid="stHorizontalBlock"] [data-baseweb="column"]:nth-child(2) button:hover {
+            background-color: rgba(239, 68, 68, 0.15);
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
 # Main content area
 if not st.session_state.authenticated:
