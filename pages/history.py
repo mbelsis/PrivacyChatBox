@@ -9,7 +9,7 @@ from datetime import datetime
 
 # Import custom modules
 from database import get_session
-from models import Conversation, Message, File
+from models import Conversation, Message, File, User
 from utils import delete_conversation, get_conversation
 from pdf_export import export_conversation_to_pdf
 import shared_sidebar
@@ -111,7 +111,7 @@ def show():
     
     with analytics_tab:
         # Load analytics data
-        from models import Message, DetectionEvent, User
+        from models import DetectionEvent
         from sqlalchemy.sql import func
         from privacy_scanner import get_detection_events
         import plotly.express as px
