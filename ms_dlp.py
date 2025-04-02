@@ -360,6 +360,29 @@ def is_dlp_integration_enabled(user_id: int) -> bool:
     if not settings["is_configured"]:
         return False
     
+    # Check if the columns exist in the database
+    with session_scope() as session:
+        import sqlalchemy as sa
+        from sqlalchemy import inspect
+        
+        # Get the table inspector
+        inspector = inspect(session.bind)
+        columns = [column['name'] for column in inspector.get_columns('settings')]
+        
+        # If the required columns don't exist, run the migration
+        if 'enable_ms_dlp' not in columns or 'ms_dlp_sensitivity_threshold' not in columns:
+            logger.warning("DLP columns don't exist in Settings table, running migration...")
+            
+            # Close the current session before modifying the schema
+            session.close()
+            
+            # Run the migration to add the columns
+            from migration_add_dlp_columns import run_migration
+            run_migration()
+            
+            # Return default value since columns were just added
+            return True
+    
     # Check user-specific settings
     with session_scope() as session:
         user_settings = session.query(Settings).filter(

@@ -94,9 +94,47 @@ def create_user(username, password, role="user"):
     if not username or not password:
         return False
     
+    # First, check if MS DLP columns exist in the database
+    # If not, run the migration script
+    try:
+        # Check if DLP columns exist
+        with session_scope() as session:
+            import sqlalchemy as sa
+            from sqlalchemy import inspect
+            
+            # Get the table inspector
+            inspector = inspect(session.bind)
+            
+            # Check if Settings table exists
+            if 'settings' in inspector.get_table_names():
+                # Get column names
+                columns = [column['name'] for column in inspector.get_columns('settings')]
+                
+                # If DLP columns don't exist, run the migration
+                if 'enable_ms_dlp' not in columns or 'ms_dlp_sensitivity_threshold' not in columns:
+                    session.close()
+                    
+                    # Import and run the migration
+                    from migration_add_dlp_columns import run_migration
+                    run_migration()
+                
+                # Check if local LLM columns exist
+                if ('local_model_context_size' not in columns or 
+                    'local_model_gpu_layers' not in columns or 
+                    'local_model_temperature' not in columns):
+                    session.close()
+                    
+                    # Import and run the migration
+                    from migration_add_local_llm_columns import run_migration
+                    run_migration()
+    except Exception as e:
+        print(f"Error checking/running migrations: {str(e)}")
+        # Continue anyway, as we'll catch any remaining issues in the user creation step
+    
+    # Now create the user
     try:
         with session_scope() as session:
-            # Check if username already exists
+            # Check if user already exists
             existing_user = session.query(User).filter(User.username == username).first()
             if existing_user:
                 return False
@@ -108,27 +146,55 @@ def create_user(username, password, role="user"):
                 role=role
             )
             session.add(new_user)
+            session.flush()  # Flush to get the user ID
             
-            # Create default settings for the user
-            default_settings = Settings(
-                user=new_user,
-                llm_provider="openai",
-                ai_character="assistant",
-                openai_api_key="",
-                openai_model="gpt-4o",
-                claude_api_key="",
-                claude_model="claude-3-5-sonnet-20241022",
-                gemini_api_key="",
-                gemini_model="gemini-1.5-pro", # Update to latest Gemini model
-                serpapi_key="",
-                local_model_path="",
-                scan_enabled=True,
-                scan_level="standard",
-                auto_anonymize=True,
-                disable_scan_for_local_model=True,
-                custom_patterns=[]
-            )
+            # Create settings dictionary with all required fields
+            settings_dict = {
+                "user_id": new_user.id,
+                "llm_provider": "openai",
+                "ai_character": "assistant",
+                "openai_api_key": "",
+                "openai_model": "gpt-4o",
+                "claude_api_key": "",
+                "claude_model": "claude-3-5-sonnet-20241022",
+                "gemini_api_key": "",
+                "gemini_model": "gemini-1.5-pro",
+                "serpapi_key": "",
+                "local_model_path": "",
+                "scan_enabled": True,
+                "scan_level": "standard",
+                "auto_anonymize": True,
+                "disable_scan_for_local_model": True,
+                "custom_patterns": []
+            }
+            
+            # Add MS DLP settings if columns exist
+            try:
+                inspector = inspect(session.bind)
+                columns = [column['name'] for column in inspector.get_columns('settings')]
+                
+                if 'enable_ms_dlp' in columns:
+                    settings_dict["enable_ms_dlp"] = True
+                    
+                if 'ms_dlp_sensitivity_threshold' in columns:
+                    settings_dict["ms_dlp_sensitivity_threshold"] = "confidential"
+                    
+                if 'local_model_context_size' in columns:
+                    settings_dict["local_model_context_size"] = 2048
+                    
+                if 'local_model_gpu_layers' in columns:
+                    settings_dict["local_model_gpu_layers"] = -1
+                    
+                if 'local_model_temperature' in columns:
+                    settings_dict["local_model_temperature"] = 0.7
+            except Exception as e:
+                print(f"Error checking columns for Settings: {str(e)}")
+                # Continue anyway, we'll use what we have
+            
+            # Create and add settings
+            default_settings = Settings(**settings_dict)
             session.add(default_settings)
+            
             return True
     except IntegrityError:
         # Log error but don't need to rollback as session_scope handles it
