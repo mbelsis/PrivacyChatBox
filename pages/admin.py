@@ -199,36 +199,43 @@ AZURE_CLIENT_SECRET: ********
         selected_user_id = user_options[selected_user_display]
         
         # Get current role with error handling
-        selected_user = None
+        current_role = "user"  # Default value
         
         try:
             with session_scope() as session:
                 if session:
-                    selected_user = session.query(User).filter(User.id == selected_user_id).first()
+                    # Get user role directly within session
+                    user_info = session.query(User.role).filter(User.id == selected_user_id).first()
+                    if user_info:
+                        current_role = user_info[0]
+                    else:
+                        st.error("User not found.")
+                        return
                 else:
                     st.error("Unable to connect to database. Please try again later.")
+                    return
         except Exception as e:
             st.error(f"Error retrieving user: {str(e)}")
+            return
         
-        if selected_user:
-            current_role = selected_user.role
-            new_role = st.selectbox(
-                "New Role", 
-                ["user", "admin"], 
-                index=0 if current_role == "user" else 1,
-                key="change_role"
-            )
-            
-            if st.button("Update Role"):
-                if selected_user_id == user_id and new_role != "admin":
-                    st.error("You cannot remove your own admin privileges")
+        # Select new role based on current role
+        new_role = st.selectbox(
+            "New Role", 
+            ["user", "admin"], 
+            index=0 if current_role == "user" else 1,
+            key="change_role"
+        )
+        
+        if st.button("Update Role"):
+            if selected_user_id == user_id and new_role != "admin":
+                st.error("You cannot remove your own admin privileges")
+            else:
+                success = update_user_role(selected_user_id, new_role)
+                if success:
+                    st.success(f"User role updated to '{new_role}'")
+                    st.rerun()
                 else:
-                    success = update_user_role(selected_user_id, new_role)
-                    if success:
-                        st.success(f"User role updated to '{new_role}'")
-                        st.rerun()
-                    else:
-                        st.error("Failed to update user role")
+                    st.error("Failed to update user role")
         
         # Delete user
         st.markdown("---")
@@ -293,7 +300,19 @@ AZURE_CLIENT_SECRET: ********
                      .first()
                     
                     # Get latest detection event
-                    latest_event = session.query(DetectionEvent).order_by(DetectionEvent.timestamp.desc()).first()
+                    latest_event_data = None
+                    latest_event_query = session.query(
+                        DetectionEvent.timestamp,
+                        DetectionEvent.action,
+                        DetectionEvent.severity
+                    ).order_by(DetectionEvent.timestamp.desc()).first()
+                    
+                    if latest_event_query:
+                        latest_event_data = {
+                            "timestamp": latest_event_query[0],
+                            "action": latest_event_query[1],
+                            "severity": latest_event_query[2]
+                        }
                 else:
                     st.error("Unable to connect to database. Please try again later.")
         except Exception as e:
@@ -322,9 +341,9 @@ AZURE_CLIENT_SECRET: ********
                 st.write(f"**Most Active User**: {username} ({count} conversations)")
         
         with col2:
-            if latest_event:
-                event_time = latest_event.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                st.write(f"**Latest Detection Event**: {event_time} ({latest_event.action}, {latest_event.severity})")
+            if latest_event_data:
+                event_time = latest_event_data["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                st.write(f"**Latest Detection Event**: {event_time} ({latest_event_data['action']}, {latest_event_data['severity']})")
     
     # Privacy Logs tab
     with logs_tab:

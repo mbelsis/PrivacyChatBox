@@ -12,7 +12,7 @@ from collections import Counter
 from database import get_session, session_scope
 from models import DetectionEvent, User, Message, Conversation
 from sqlalchemy import func, desc, case, distinct, extract, cast, String, Float
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, joinedload
 import shared_sidebar
 
 def show():
@@ -266,65 +266,77 @@ def show_model_usage():
         start_date = datetime(2020, 1, 1)  # Effectively all time
     
     # Query model usage from database
-    with get_session() as session:
-        # We need to join with users to get their settings
-        # Since we don't have a direct model tracking table, we'll check user settings
-        # and count conversations during the period
-        User_alias = aliased(User)
-        
-        # Get conversation counts by user during period
-        conversation_data = session.query(
-            User_alias.id,
-            User_alias.username,
-            func.count(Conversation.id).label('conversation_count'),
-            func.count(Message.id).filter(Message.role == 'assistant').label('response_count')
-        ).join(
-            Conversation, User_alias.id == Conversation.user_id
-        ).outerjoin(
-            Message, Conversation.id == Message.conversation_id
-        ).filter(
-            Conversation.created_at >= start_date,
-            Conversation.created_at <= end_date
-        ).group_by(
-            User_alias.id, User_alias.username
-        ).all()
-        
-        # Get user settings for model information
-        users_with_settings = session.query(
-            User, User.settings
-        ).all()
-        
-        # Extract model usage data
-        model_data = []
-        for user, settings in users_with_settings:
-            # Find conversation count for this user
-            user_conv_data = next((data for data in conversation_data if data[0] == user.id), None)
-            conv_count = user_conv_data[2] if user_conv_data else 0
-            response_count = user_conv_data[3] if user_conv_data else 0
-            
-            # Only include users with activity
-            if conv_count > 0:
-                provider = settings.llm_provider if settings else "unknown"
+    conversation_data = []
+    users_with_settings = []
+    model_data = []
+    
+    try:
+        with session_scope() as session:
+            if session:
+                # We need to join with users to get their settings
+                # Since we don't have a direct model tracking table, we'll check user settings
+                # and count conversations during the period
+                User_alias = aliased(User)
                 
-                # Determine the specific model
-                model = "unknown"
-                if provider == "openai":
-                    model = settings.openai_model if settings else "unknown"
-                elif provider == "claude":
-                    model = settings.claude_model if settings else "unknown"
-                elif provider == "gemini":
-                    model = settings.gemini_model if settings else "unknown"
-                elif provider == "local":
-                    model = "local_model"
+                # Get conversation counts by user during period
+                conversation_data = session.query(
+                    User_alias.id,
+                    User_alias.username,
+                    func.count(Conversation.id).label('conversation_count'),
+                    func.count(Message.id).filter(Message.role == 'assistant').label('response_count')
+                ).join(
+                    Conversation, User_alias.id == Conversation.user_id
+                ).outerjoin(
+                    Message, Conversation.id == Message.conversation_id
+                ).filter(
+                    Conversation.created_at >= start_date,
+                    Conversation.created_at <= end_date
+                ).group_by(
+                    User_alias.id, User_alias.username
+                ).all()
                 
-                model_data.append({
-                    'user_id': user.id,
-                    'username': user.username,
-                    'provider': provider,
-                    'model': model,
-                    'conversations': conv_count,
-                    'responses': response_count
-                })
+                # Get all users and their settings in dictionary format
+                users_query = session.query(User).options(joinedload(User.settings)).all()
+                
+                # Process each user safely within the session
+                for user in users_query:
+                    # Get user's conversation counts
+                    user_conv_data = next((data for data in conversation_data if data[0] == user.id), None)
+                    
+                    if user_conv_data:
+                        conv_count = user_conv_data[2]
+                        response_count = user_conv_data[3]
+                        
+                        # Only include users with activity
+                        if conv_count > 0:
+                            settings = user.settings
+                            provider = settings.llm_provider if settings else "unknown"
+                            
+                            # Determine the specific model
+                            model = "unknown"
+                            if provider == "openai":
+                                model = settings.openai_model if settings else "unknown"
+                            elif provider == "claude":
+                                model = settings.claude_model if settings else "unknown"
+                            elif provider == "gemini":
+                                model = settings.gemini_model if settings else "unknown"
+                            elif provider == "local":
+                                model = "local_model"
+                            
+                            model_data.append({
+                                'user_id': user.id,
+                                'username': user.username,
+                                'provider': provider,
+                                'model': model,
+                                'conversations': conv_count,
+                                'responses': response_count
+                            })
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+    except Exception as e:
+        st.error(f"Error loading model usage data: {str(e)}")
+        return
     
     # Create a DataFrame for visualization
     if model_data:
@@ -414,51 +426,63 @@ def show_user_activity():
         start_date = datetime(2020, 1, 1)  # Effectively all time
     
     # Query user activity
-    with get_session() as session:
-        # Get basic user metrics
-        user_metrics = session.query(
-            User.id,
-            User.username,
-            User.role,
-            User.created_at,
-            func.count(distinct(Conversation.id)).label('conversation_count'),
-            func.count(Message.id).filter(Message.role == 'user').label('message_count'),
-            func.count(Message.id).filter(Message.role == 'assistant').label('response_count')
-        ).outerjoin(
-            Conversation, User.id == Conversation.user_id
-        ).outerjoin(
-            Message, Conversation.id == Message.conversation_id
-        ).filter(
-            User.created_at <= end_date
-        ).group_by(
-            User.id, User.username, User.role, User.created_at
-        ).all()
-        
-        # Get time-based activity data
-        daily_activity = session.query(
-            func.date(Message.timestamp).label('date'),
-            func.count(Message.id).label('message_count')
-        ).filter(
-            Message.timestamp >= start_date,
-            Message.timestamp <= end_date
-        ).group_by(
-            func.date(Message.timestamp)
-        ).order_by(
-            func.date(Message.timestamp)
-        ).all()
-        
-        # Get hourly distribution
-        hourly_activity = session.query(
-            func.extract('hour', Message.timestamp).label('hour'),
-            func.count(Message.id).label('message_count')
-        ).filter(
-            Message.timestamp >= start_date,
-            Message.timestamp <= end_date
-        ).group_by(
-            func.extract('hour', Message.timestamp)
-        ).order_by(
-            func.extract('hour', Message.timestamp)
-        ).all()
+    user_metrics = []
+    daily_activity = []
+    hourly_activity = []
+    
+    try:
+        with session_scope() as session:
+            if session:
+                # Get basic user metrics
+                user_metrics = session.query(
+                    User.id,
+                    User.username,
+                    User.role,
+                    User.created_at,
+                    func.count(distinct(Conversation.id)).label('conversation_count'),
+                    func.count(Message.id).filter(Message.role == 'user').label('message_count'),
+                    func.count(Message.id).filter(Message.role == 'assistant').label('response_count')
+                ).outerjoin(
+                    Conversation, User.id == Conversation.user_id
+                ).outerjoin(
+                    Message, Conversation.id == Message.conversation_id
+                ).filter(
+                    User.created_at <= end_date
+                ).group_by(
+                    User.id, User.username, User.role, User.created_at
+                ).all()
+                
+                # Get time-based activity data
+                daily_activity = session.query(
+                    func.date(Message.timestamp).label('date'),
+                    func.count(Message.id).label('message_count')
+                ).filter(
+                    Message.timestamp >= start_date,
+                    Message.timestamp <= end_date
+                ).group_by(
+                    func.date(Message.timestamp)
+                ).order_by(
+                    func.date(Message.timestamp)
+                ).all()
+                
+                # Get hourly distribution
+                hourly_activity = session.query(
+                    func.extract('hour', Message.timestamp).label('hour'),
+                    func.count(Message.id).label('message_count')
+                ).filter(
+                    Message.timestamp >= start_date,
+                    Message.timestamp <= end_date
+                ).group_by(
+                    func.extract('hour', Message.timestamp)
+                ).order_by(
+                    func.extract('hour', Message.timestamp)
+                ).all()
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+    except Exception as e:
+        st.error(f"Error loading user activity data: {str(e)}")
+        return
     
     # Create DataFrames for visualization
     user_df = pd.DataFrame([
@@ -558,32 +582,51 @@ def show_system_stats():
     """Display system statistics"""
     st.header("System Statistics")
     
-    with get_session() as session:
-        # Total database records
-        user_count = session.query(func.count(User.id)).scalar() or 0
-        conversation_count = session.query(func.count(Conversation.id)).scalar() or 0
-        message_count = session.query(func.count(Message.id)).scalar() or 0
-        detection_count = session.query(func.count(DetectionEvent.id)).scalar() or 0
+    # Initialize variables
+    user_count = 0
+    conversation_count = 0
+    message_count = 0
+    detection_count = 0
+    azure_users_count = 0
+    total_storage = 0
+    oldest_message = None
+    newest_message = None
+    avg_message_length = 0
+    
+    try:
+        with session_scope() as session:
+            if session:
+                # Total database records
+                user_count = session.query(func.count(User.id)).scalar() or 0
+                conversation_count = session.query(func.count(Conversation.id)).scalar() or 0
+                message_count = session.query(func.count(Message.id)).scalar() or 0
+                detection_count = session.query(func.count(DetectionEvent.id)).scalar() or 0
+                
+                # Azure AD statistics
+                azure_users_count = session.query(func.count(User.id)).filter(User.azure_id != None).scalar() or 0
+                
+                # Get some database stats
+                total_storage = session.query(
+                    func.sum(func.length(cast(Message.content, String)))
+                ).scalar() or 0
+                
+                # Get the oldest and newest records
+                oldest_message = session.query(func.min(Message.timestamp)).scalar()
+                newest_message = session.query(func.max(Message.timestamp)).scalar()
+                
+                # Calculate average message length
+                avg_message_length = session.query(
+                    func.avg(func.length(cast(Message.content, String)))
+                ).scalar() or 0
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+    except Exception as e:
+        st.error(f"Error loading system statistics: {str(e)}")
+        return
         
-        # Azure AD statistics
-        azure_users_count = session.query(func.count(User.id)).filter(User.azure_id != None).scalar() or 0
-        
-        # Get some database stats
-        total_storage = session.query(
-            func.sum(func.length(cast(Message.content, String)))
-        ).scalar() or 0
-        
-        # Convert to MB
-        total_storage_mb = total_storage / (1024 * 1024)
-        
-        # Get the oldest and newest records
-        oldest_message = session.query(func.min(Message.timestamp)).scalar()
-        newest_message = session.query(func.max(Message.timestamp)).scalar()
-        
-        # Calculate average message length
-        avg_message_length = session.query(
-            func.avg(func.length(cast(Message.content, String)))
-        ).scalar() or 0
+    # Convert to MB
+    total_storage_mb = total_storage / (1024 * 1024)
     
     # Display metrics
     st.subheader("Database Overview")
@@ -664,16 +707,27 @@ def show_system_stats():
     # Database growth over time
     st.subheader("Database Growth")
     
-    with get_session() as session:
-        # Query message count by date
-        message_growth = session.query(
-            func.date(Message.timestamp).label('date'),
-            func.count(Message.id).label('message_count')
-        ).group_by(
-            func.date(Message.timestamp)
-        ).order_by(
-            func.date(Message.timestamp)
-        ).all()
+    # Initialize message growth data
+    message_growth = []
+    
+    try:
+        with session_scope() as session:
+            if session:
+                # Query message count by date
+                message_growth = session.query(
+                    func.date(Message.timestamp).label('date'),
+                    func.count(Message.id).label('message_count')
+                ).group_by(
+                    func.date(Message.timestamp)
+                ).order_by(
+                    func.date(Message.timestamp)
+                ).all()
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+    except Exception as e:
+        st.error(f"Error loading message growth data: {str(e)}")
+        return
     
     if message_growth:
         # Create DataFrame and calculate cumulative sum
@@ -727,21 +781,37 @@ def show_system_stats():
     # Database performance
     st.subheader("Database Performance Check")
     
-    # Simple DB performance test
-    start_time = time.time()
-    with get_session() as session:
-        session.query(User).limit(1).all()
-    query_time = time.time() - start_time
+    # Initialize performance metrics
+    query_time = 0
+    complex_query_time = 0
     
+    try:
+        # Simple DB performance test
+        start_time = time.time()
+        with session_scope() as session:
+            if session:
+                session.query(User).limit(1).all()
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+        query_time = time.time() - start_time
+        
+        # More complex query
+        start_time = time.time()
+        with session_scope() as session:
+            if session:
+                session.query(User).join(Conversation).join(Message).limit(10).all()
+            else:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+        complex_query_time = time.time() - start_time
+    except Exception as e:
+        st.error(f"Error testing database performance: {str(e)}")
+        return
+        
     col1, col2 = st.columns(2)
     with col1:
         st.metric("Simple Query Time", f"{query_time*1000:.2f} ms")
-    
-    # More complex query
-    start_time = time.time()
-    with get_session() as session:
-        session.query(User).join(Conversation).join(Message).limit(10).all()
-    complex_query_time = time.time() - start_time
     
     with col2:
         st.metric("Complex Query Time", f"{complex_query_time*1000:.2f} ms")

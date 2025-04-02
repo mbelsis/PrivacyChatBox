@@ -1,65 +1,69 @@
 import streamlit as st
-import hashlib
 import os
 from datetime import datetime, timedelta
-from database import get_session
+from database import get_session, session_scope
 from models import User, Settings
 from sqlalchemy.exc import IntegrityError
-import azure_auth
+# Import hash_password from utils_auth instead
+from utils_auth import hash_password
 
 def init_auth():
     """Initialize authentication system"""
+    # Import azure_auth here to avoid circular import issues
+    import azure_auth
+    
     # Initialize Azure AD authentication
     azure_auth.init_azure_auth()
     
     # Check if we have Azure authentication in the URL
     azure_auth.check_azure_auth_params()
     
-    # Create admin user if it doesn't exist
-    session = get_session()
-    admin_exists = session.query(User).filter(User.username == "admin").first()
-    
-    if not admin_exists:
-        # Create admin user with default password "admin"
-        admin_user = User(
-            username="admin",
-            password=hash_password("admin"),
-            role="admin"
-        )
-        session.add(admin_user)
+    # Use session_scope for better transaction management
+    with session_scope() as session:
+        if not session:
+            st.error("Unable to connect to database. Please try again later.")
+            return
+            
+        # Create admin user if it doesn't exist
+        admin_exists = session.query(User).filter(User.username == "admin").first()
         
-        # Create default settings for admin
-        default_settings = Settings(
-            user=admin_user,
-            llm_provider="openai",
-            ai_character="assistant",
-            openai_api_key="",
-            openai_model="gpt-4o",
-            claude_api_key="",
-            claude_model="claude-3-5-sonnet-20241022",
-            gemini_api_key="",
-            gemini_model="gemini-pro",
-            serpapi_key="",
-            local_model_path="",
-            scan_enabled=True,
-            scan_level="standard",
-            auto_anonymize=True,
-            disable_scan_for_local_model=True,
-            custom_patterns=[]
-        )
-        session.add(default_settings)
-        
-        try:
-            session.commit()
-            st.sidebar.success("Admin user created with default password 'admin'")
-        except IntegrityError:
-            session.rollback()
-        finally:
-            session.close()
+        if not admin_exists:
+            # Create admin user with default password "admin"
+            admin_user = User(
+                username="admin",
+                password=hash_password("admin"),
+                role="admin"
+            )
+            session.add(admin_user)
+            
+            # Create default settings for admin
+            default_settings = Settings(
+                user=admin_user,
+                llm_provider="openai",
+                ai_character="assistant",
+                openai_api_key="",
+                openai_model="gpt-4o",
+                claude_api_key="",
+                claude_model="claude-3-5-sonnet-20241022",
+                gemini_api_key="",
+                gemini_model="gemini-pro",
+                serpapi_key="",
+                local_model_path="",
+                scan_enabled=True,
+                scan_level="standard",
+                auto_anonymize=True,
+                disable_scan_for_local_model=True,
+                custom_patterns=[]
+            )
+            session.add(default_settings)
+            
+            try:
+                session.commit()
+                st.sidebar.success("Admin user created with default password 'admin'")
+            except IntegrityError:
+                session.rollback()
 
-def hash_password(password):
-    """Hash a password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+# hash_password is now imported from utils_auth.py
 
 def authenticate(username, password):
     """Authenticate a user"""

@@ -7,8 +7,9 @@ import requests
 from jose import jwt
 import uuid
 import streamlit as st
-from database import get_session
+from database import get_session, session_scope
 from models import User, Settings
+from utils_auth import hash_password
 
 # Azure AD configuration
 AZURE_CLIENT_ID = os.environ.get("AZURE_CLIENT_ID", "")
@@ -129,64 +130,79 @@ def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tu
     Returns:
         Tuple with user ID and role
     """
-    session = get_session()
+    # Use session_scope for better transaction management
+    user_id = -1
+    user_role = ""
     
-    # Check if user exists by Azure ID
+    # Add columns if they don't exist
     from sqlalchemy import Column, String
-    
-    # Check if the azure_id column exists in the User table
     if not hasattr(User, 'azure_id'):
-        # Add azure_id column to User model
         User.azure_id = Column(String, unique=True, index=True, nullable=True)
+    if not hasattr(User, 'azure_name'):
+        User.azure_name = Column(String, nullable=True)
     
-    user = session.query(User).filter(User.azure_id == azure_id).first()
-    
-    if not user:
-        # Check if user exists by email used as username
-        user = session.query(User).filter(User.username == email).first()
-        
-        if not user:
-            # Create new user
-            import hashlib
+    try:
+        with session_scope() as session:
+            if not session:
+                st.error("Unable to connect to database. Please try again later.")
+                return -1, ""
+                
+            # Try to find user by Azure ID
+            user = session.query(User).filter(User.azure_id == azure_id).first()
             
-            # Generate a random password for the user
-            temp_password = str(uuid.uuid4())
-            hashed_password = hashlib.sha256(temp_password.encode()).hexdigest()
+            if user:
+                # User exists
+                user_id = user.id
+                user_role = user.role
+            else:
+                # Check if user exists by email used as username
+                user = session.query(User).filter(User.username == email).first()
+                
+                if user:
+                    # User exists but doesn't have Azure ID, update it
+                    user.azure_id = azure_id
+                    user.azure_name = display_name
+                    user_id = user.id
+                    user_role = user.role
+                else:
+                    # Create new user
+                    # Generate a random password for the user
+                    temp_password = str(uuid.uuid4())
+                    
+                    user = User(
+                        username=email,
+                        password=hash_password(temp_password),
+                        role="user",  # Default role for Azure AD users
+                        azure_id=azure_id,
+                        azure_name=display_name
+                    )
+                    
+                    session.add(user)
+                    session.flush()  # Flush to get the ID without committing yet
+                    
+                    # Create default settings for the user
+                    settings = Settings(user_id=user.id)
+                    session.add(settings)
+                    
+                    user_id = user.id
+                    user_role = user.role
             
-            user = User(
-                username=email,
-                password=hashed_password,
-                role="user",  # Default role for Azure AD users
-                azure_id=azure_id,
-                azure_name=display_name
-            )
-            
-            session.add(user)
-            
-            # Create default settings for the user
-            settings = Settings(user=user)
-            session.add(settings)
-            
+            # Commit changes
             session.commit()
-        else:
-            # Update existing user with Azure ID
-            user.azure_id = azure_id
-            user.azure_name = display_name
-            session.commit()
+            
+            # Set authentication in session state (outside the with block to avoid detached instance errors)
+            if user_id > 0:
+                st.session_state.authenticated = True
+                st.session_state.username = email
+                st.session_state.user_id = user_id
+                st.session_state.role = user_role
+                st.session_state.azure_user = True
     
-    # Set authentication in session state
-    st.session_state.authenticated = True
-    st.session_state.username = user.username
-    st.session_state.user_id = user.id
-    st.session_state.role = user.role
-    st.session_state.azure_user = True
+    except Exception as e:
+        st.error(f"Error creating or getting Azure user: {e}")
+        return -1, ""
     
-    user_id = user.id
-    role = user.role
-    
-    session.close()
-    
-    return user_id, role
+    return user_id, user_role
 
 def check_azure_auth_params():
     """Check if Azure AD auth parameters are set in URL"""
@@ -227,10 +243,6 @@ def show_azure_login_button():
 
 def add_azure_id_column():
     """Add Azure ID column to User table if it doesn't exist"""
-    from sqlalchemy import Column, String
-    
-    if not hasattr(User, 'azure_id'):
-        User.azure_id = Column(String, unique=True, index=True, nullable=True)
-    
-    if not hasattr(User, 'azure_name'):
-        User.azure_name = Column(String, nullable=True)
+    # This functionality has been moved to create_or_get_azure_user
+    # to ensure proper transaction handling
+    pass
