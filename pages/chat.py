@@ -29,8 +29,12 @@ from serpapi import GoogleSearch
 
 def show():
     """Main function to display the chat interface"""
+    # Clear sidebar state for fresh creation
+    if "sidebar_created" in st.session_state:
+        del st.session_state.sidebar_created
+    
     # Create sidebar with shared component
-    shared_sidebar.create_sidebar()
+    shared_sidebar.create_sidebar("chat_page")
     
     # Page settings
     st.title("💬 AI Chat")

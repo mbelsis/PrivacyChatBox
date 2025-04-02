@@ -57,11 +57,12 @@ def toggle_dark_mode():
 # Import shared sidebar component
 import shared_sidebar
 
-# Check if we're on the main page - if so, we'll create the sidebar ourselves
-# Otherwise, the page-specific code will create it
-if __name__ == "__main__":
-    # Create sidebar with shared component
-    shared_sidebar.create_sidebar()
+# Clear sidebar state for fresh creation on each page load
+if "sidebar_created" in st.session_state:
+    del st.session_state.sidebar_created
+
+# Create shared sidebar - the function will ensure it's only created once
+shared_sidebar.create_sidebar("main_app")
 
 # Main page sidebar content
 with st.sidebar:
@@ -232,9 +233,9 @@ with st.sidebar:
                         else:
                             st.error("Username already exists")
     
-    # Show shared navigation menu if authenticated
+    # The shared sidebar is already created earlier, no need to create it again
     else:
-        shared_sidebar.create_sidebar()
+        pass
 
 # Main content area
 if not st.session_state.authenticated:

@@ -1,7 +1,18 @@
 import streamlit as st
 
-def create_sidebar():
-    """Create a consistent sidebar for all pages"""
+def create_sidebar(page_name=""):
+    """
+    Create a consistent sidebar for all pages
+    
+    Args:
+        page_name: Optional identifier for the current page to create unique button keys
+    """
+    # Ensure we don't create duplicate sidebars
+    if "sidebar_created" in st.session_state:
+        return
+    
+    # Mark sidebar as created for this session
+    st.session_state.sidebar_created = True
     with st.sidebar:
         st.image("https://img.icons8.com/fluency/96/privacy.png", width=60)
         st.title("PrivacyChatBoX")
