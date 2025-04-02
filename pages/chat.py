@@ -206,6 +206,30 @@ def show():
         background-color: #f8f9fa !important;
     }
     
+    /* Ensure chat message content is scrollable */
+    .stChatMessageContent, 
+    .stChatMessage > div:last-child > div:first-child,
+    .stChatMessage p {
+        max-height: 400px !important;
+        overflow-y: auto !important;
+        overflow-x: auto !important;
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+    }
+    
+    /* Add scrollbar styling */
+    .stChatMessageContent::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    .stChatMessageContent::-webkit-scrollbar-thumb {
+        background-color: #ccc;
+        border-radius: 10px;
+    }
+    .stChatMessageContent::-webkit-scrollbar-track {
+        background-color: transparent;
+    }
+    
     /* Make file uploader button more compact */
     .stFileUploader > div:first-child {
         background-color: transparent !important;
