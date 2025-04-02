@@ -187,6 +187,40 @@ The Model Manager page provides a user-friendly interface for:
 - **Bypass Privacy Scanning**: Option to disable privacy scanning for local models (since data never leaves your system)
 - **Hardware Acceleration**: GPU acceleration support for faster inference
 
+## Troubleshooting
+
+### Database Migrations
+
+This application uses several database migration scripts to handle schema updates:
+
+- **migration_add_dlp_columns.py**: Adds Microsoft DLP integration columns to the Settings table
+- **migration_add_local_llm_columns.py**: Adds local LLM configuration columns to the Settings table
+
+If you encounter database-related errors, especially with missing columns, make sure to run these migration scripts:
+
+```bash
+python migration_add_dlp_columns.py
+python migration_add_local_llm_columns.py
+```
+
+The application includes auto-migration checks that will attempt to detect and apply necessary migrations when features are accessed.
+
+### Common Issues and Solutions
+
+1. **Missing Database Columns Error**:
+   - Error: `column settings.enable_ms_dlp does not exist` or similar
+   - Solution: Run the appropriate migration script as mentioned above
+
+2. **Detached Instance Errors**:
+   - Error: `Instance <User at 0x...> is not bound to a Session`
+   - Solution: The application uses the session_scope context manager to properly handle database sessions. 
+               Check that all database operations are performed within a session_scope block.
+
+3. **Conversation Display Issues**:
+   - Problem: Conversations not displaying correctly or errors when accessing message properties
+   - Solution: The application uses a robust message formatting function that handles both model objects and dictionaries.
+               Make sure to use the format_conversation_messages function when working with conversation data.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
