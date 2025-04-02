@@ -111,6 +111,9 @@ CREATE TABLE settings (
     gemini_model VARCHAR DEFAULT 'gemini-1.5-pro',
     serpapi_key VARCHAR DEFAULT '',
     local_model_path VARCHAR DEFAULT '',
+    local_model_context_size INTEGER DEFAULT 2048,
+    local_model_gpu_layers INTEGER DEFAULT -1,
+    local_model_temperature FLOAT DEFAULT 0.7,
     scan_enabled BOOLEAN DEFAULT TRUE,
     scan_level VARCHAR DEFAULT 'standard',
     auto_anonymize BOOLEAN DEFAULT TRUE,
@@ -124,6 +127,9 @@ CREATE TABLE settings (
 COMMENT ON COLUMN settings.llm_provider IS 'openai, claude, gemini, local';
 COMMENT ON COLUMN settings.scan_level IS 'standard, strict';
 COMMENT ON COLUMN settings.ms_dlp_sensitivity_threshold IS 'general, internal, confidential, highly_confidential, secret, top_secret';
+COMMENT ON COLUMN settings.local_model_context_size IS 'Context window size for local LLM in tokens';
+COMMENT ON COLUMN settings.local_model_gpu_layers IS 'Number of layers to offload to GPU, -1 means all available';
+COMMENT ON COLUMN settings.local_model_temperature IS 'Temperature setting for local model generation (0.0 to 2.0)';
 ```
 
 ### Conversations Table
@@ -207,7 +213,11 @@ User (1) ---> (0..1) Settings
 
 ## Database Migrations
 
-The application includes migration scripts to update the database schema as needed. For example, `migration_add_dlp_columns.py` adds Microsoft DLP integration columns to the Settings table:
+The application includes migration scripts to update the database schema as needed:
+
+### Microsoft DLP Integration Migration
+
+The `migration_add_dlp_columns.py` script adds Microsoft DLP integration columns to the Settings table:
 
 ```python
 def run_migration():
@@ -234,6 +244,36 @@ def run_migration():
         print("Microsoft DLP integration columns already exist")
 ```
 
+### Local LLM Integration Migration
+
+The `migration_add_local_llm_columns.py` script adds local LLM configuration columns to the Settings table:
+
+```python
+def run_migration():
+    """
+    Add local LLM configuration columns to the Settings table
+    """
+    # Initialize database connection
+    engine = create_engine(os.environ.get("DATABASE_URL"))
+    
+    # Check if columns already exist
+    inspector = inspect(engine)
+    columns = [col["name"] for col in inspector.get_columns("settings")]
+    
+    # Add columns if they don't exist
+    if "local_model_context_size" not in columns:
+        with engine.connect() as connection:
+            connection.execute(text("""
+                ALTER TABLE settings 
+                ADD COLUMN local_model_context_size INTEGER DEFAULT 2048,
+                ADD COLUMN local_model_gpu_layers INTEGER DEFAULT -1,
+                ADD COLUMN local_model_temperature FLOAT DEFAULT 0.7
+            """))
+            print("Added local LLM configuration columns to Settings table")
+    else:
+        print("Local LLM configuration columns already exist")
+```
+
 ## Setting Up a New Database
 
 To set up a new PostgreSQL database for PrivacyChatBoX:
@@ -258,9 +298,10 @@ To set up a new PostgreSQL database for PrivacyChatBoX:
 
 5. Run the application with `streamlit run app.py` - the database tables will be created automatically using SQLAlchemy's `create_all()` method.
 
-6. Run any migration scripts if needed:
+6. Run all migration scripts to ensure all necessary columns are added:
    ```bash
    python migration_add_dlp_columns.py
+   python migration_add_local_llm_columns.py
    ```
 
 ## Working with the Database

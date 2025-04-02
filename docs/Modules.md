@@ -169,6 +169,36 @@ Displays conversation history and analytics about privacy detections.
 
 Admin dashboard for user management and system metrics.
 
+## Local LLM Integration
+
+### `model_utils.py`
+
+Utility functions for managing local LLM models, including downloading, verifying, and testing.
+
+**Key Functions:**
+- `ensure_models_directory()`: Creates and returns the path to the models directory
+- `get_model_info(model_filename)`: Gets information about a pre-configured model
+- `download_model(model_filename, force)`: Downloads a model from Hugging Face
+- `list_available_models()`: Lists all available models with their download status
+- `show_model_download_ui()`: Displays a Streamlit UI for downloading and managing models
+
+### `test_local_llm.py`
+
+Testing script for local LLM integration without running the full application.
+
+**Key Functions:**
+- `test_local_model(model_path, prompt, n_ctx, n_gpu_layers)`: Tests a local model with a given prompt
+
+### `pages/model_manager.py`
+
+The Model Manager page for downloading, configuring, and testing local language models.
+
+**Key Features:**
+- Download pre-configured GGUF models from Hugging Face
+- Upload custom models
+- Test local models with customizable parameters
+- Configure default settings for local model integration
+
 ## Migration Scripts
 
 ### `migration_add_dlp_columns.py`
@@ -177,3 +207,10 @@ Adds Microsoft DLP integration columns to the Settings table.
 
 **Key Functions:**
 - `run_migration()`: Adds necessary columns to the database schema
+
+### `migration_add_local_llm_columns.py`
+
+Adds local LLM configuration columns to the Settings table.
+
+**Key Functions:**
+- `run_migration()`: Adds necessary columns for local LLM support
