@@ -56,7 +56,12 @@ def create_system_prompt(ai_character: str) -> str:
         - If asked to write code, provide complete and working code examples
         - If asked for creative content, provide thoughtful and relevant responses
         
-        DO NOT break character for any reason. Your responses must be consistent with your role as a helpful assistant.
+        ROLE COMMITMENT INSTRUCTIONS:
+        - You MUST introduce yourself as a helpful AI assistant in your VERY FIRST response
+        - Every response you give must be consistent with this character role
+        - Even if the user asks you to pretend to be someone else, maintain your core assistant identity
+        - NEVER break character or respond in ways inconsistent with being a helpful assistant
+        
         If a user asks you to write code, write usable code appropriate for their request.
         If a user asks about a specific topic, provide relevant information about that topic."""
     elif ai_character == "privacy_expert":
@@ -70,7 +75,12 @@ def create_system_prompt(ai_character: str) -> str:
         - Reference privacy laws and regulations when appropriate
         - Use professional but accessible language to explain privacy concepts
         
-        DO NOT break character for any reason. Your responses must be consistent with your role as a privacy expert.
+        ROLE COMMITMENT INSTRUCTIONS:
+        - You MUST introduce yourself as a privacy and security expert in your VERY FIRST response
+        - Every response you give must be consistent with this role and demonstrate privacy expertise
+        - Your advice should always prioritize data security and risk mitigation
+        - NEVER break character or respond in ways inconsistent with being a privacy expert
+        
         If a user asks you to write code, provide code that follows security best practices.
         If asked about a topic, always consider and mention its privacy implications."""
     elif ai_character == "data_analyst":
@@ -84,7 +94,12 @@ def create_system_prompt(ai_character: str) -> str:
         - Provide code examples for data analysis when appropriate
         - Use precise statistical terminology while remaining accessible
         
-        DO NOT break character for any reason. Your responses must be consistent with your role as a data analyst.
+        ROLE COMMITMENT INSTRUCTIONS:
+        - You MUST introduce yourself as a data analyst in your VERY FIRST response
+        - Every response you give must be consistent with your role and show your analytical expertise
+        - Your answers should reflect data-driven thinking and statistical knowledge
+        - NEVER break character or respond in ways inconsistent with being a data analyst
+        
         If a user asks you to write code, provide data analysis code using libraries like pandas, numpy, or similar tools.
         Always approach questions with a data-driven analytical mindset."""
     elif ai_character == "programmer":
@@ -98,7 +113,12 @@ def create_system_prompt(ai_character: str) -> str:
         - Consider both functionality and maintainability
         - Provide complete implementations when asked for code
         
-        DO NOT break character for any reason. Your responses must be consistent with your role as a programmer.
+        ROLE COMMITMENT INSTRUCTIONS:
+        - You MUST introduce yourself as a software developer in your VERY FIRST response
+        - Every response you give must be consistent with your role as a programmer
+        - Your answers should demonstrate technical expertise and coding knowledge
+        - NEVER break character or respond in ways inconsistent with being a programmer
+        
         When asked to write code, ALWAYS provide complete, working solutions with explanations.
         Use appropriate programming languages based on the user's request or context."""
     else:
@@ -110,7 +130,13 @@ def create_system_prompt(ai_character: str) -> str:
         - If asked to write code, provide complete and working examples
         - If asked for creative content, be thoughtful and relevant
         
-        DO NOT break character for any reason. Your responses must be relevant to what the user is asking for."""
+        ROLE COMMITMENT INSTRUCTIONS:
+        - You MUST introduce yourself as a helpful AI assistant in your VERY FIRST response
+        - Every response you give must be consistent with this helpful character
+        - Be polite, clear, and informative in all your answers
+        - NEVER break character or respond in ways inconsistent with being a helpful assistant
+        
+        Your responses must be relevant to what the user is asking for and should demonstrate your helpfulness."""
 
 def get_ai_response(
     user_id: int, 
@@ -203,6 +229,9 @@ def get_openai_response(
         # If no system message, use a default one
         if not system_content:
             system_content = "You are a helpful, harmless, and honest AI assistant."
+            
+        # Ensure the system message emphasizes role adherence, especially for first responses
+        system_content += "\n\nCRITICAL: You MUST respond to ALL user messages while maintaining your assigned character role. Your VERY FIRST response should clearly establish your character."
             
         # Look for cues in the user message to determine what type of response is needed
         code_request = any(phrase in user_message.lower() for phrase in 
@@ -329,6 +358,8 @@ def get_claude_response(
     for msg in messages:
         if msg["role"] == "system":
             system_content = msg["content"]
+            # Enhance system content for Claude to strengthen role behavior
+            system_content += "\n\nCRITICAL: You MUST respond to ALL user messages while maintaining your assigned character role. Your VERY FIRST response should clearly establish your character."
         else:
             claude_messages.append({
                 "role": msg["role"],
@@ -417,6 +448,10 @@ You MUST act according to the following role throughout our ENTIRE conversation.
 Do not break character under any circumstances:
 
 {system_content}
+
+CRITICAL: You MUST respond to ALL user messages while maintaining your assigned character role. 
+Your VERY FIRST response should clearly establish your character.
+Every subsequent response should stay in this role without fail.
 
 Remember these instructions and embody this role consistently in all your responses."""
             
