@@ -285,7 +285,7 @@ def show_model_download_ui() -> Optional[str]:
             st.success(f"Model uploaded successfully to {model_path}")
             
             # Force refresh of the page
-            st.experimental_rerun()
+            st.rerun()
     
     with tab2:
         st.subheader("Manage Downloaded Models")
@@ -316,7 +316,7 @@ def show_model_download_ui() -> Optional[str]:
                                 os.remove(info['path'])
                                 st.success(f"Deleted model: {filename}")
                                 # Force refresh of the page
-                                st.experimental_rerun()
+                                st.rerun()
                             except Exception as e:
                                 st.error(f"Error deleting model: {str(e)}")
                         
