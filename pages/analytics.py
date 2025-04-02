@@ -114,11 +114,39 @@ def show_privacy_insights():
     try:
         with session_scope() as session:
             if session:
-                # Get detection events within the date range
-                events = session.query(DetectionEvent).filter(
+                # Convert detection events to dictionaries to avoid detached instance errors
+                events_data = []
+                db_events = session.query(DetectionEvent).filter(
                     DetectionEvent.timestamp >= start_date,
                     DetectionEvent.timestamp <= end_date
                 ).all()
+                
+                # Extract data from each event to prevent detached object issues
+                for event in db_events:
+                    try:
+                        event_dict = {
+                            "id": event.id,
+                            "user_id": event.user_id,
+                            "timestamp": event.timestamp,
+                            "action": event.action,
+                            "severity": event.severity,
+                            "file_names": event.file_names
+                        }
+                        
+                        # Get detected patterns safely
+                        try:
+                            detected_patterns = event.get_detected_patterns()
+                            event_dict["detected_patterns"] = detected_patterns
+                        except Exception:
+                            event_dict["detected_patterns"] = {}
+                            
+                        events_data.append(event_dict)
+                    except Exception as e:
+                        st.warning(f"Error processing an event: {e}")
+                        continue
+                
+                # Store extracted data in events variable
+                events = events_data
                 
                 # Get message count for the same period for comparison
                 message_count = session.query(func.count(Message.id)).filter(
@@ -131,6 +159,7 @@ def show_privacy_insights():
                 return
     except Exception as e:
         st.error(f"Error loading privacy data: {str(e)}")
+        st.exception(e)  # Show full exception for debugging
         return
     
     # Overview metrics
@@ -146,14 +175,14 @@ def show_privacy_insights():
         st.metric("Detection Rate", detection_ratio, help="Percentage of user messages that triggered privacy detections")
     
     with col3:
-        anonymization_count = sum(1 for event in events if event.action == "anonymize")
+        anonymization_count = sum(1 for event in events if event.get('action') == "anonymize")
         anonymization_rate = f"{(anonymization_count / total_detections) * 100:.1f}%" if total_detections > 0 else "0%"
         st.metric("Anonymization Rate", anonymization_rate, help="Percentage of detections that were anonymized")
     
     # Prepare data for charts
     if events:
         # Severity distribution
-        severity_counts = Counter(event.severity for event in events)
+        severity_counts = Counter(event.get('severity', 'unknown') for event in events)
         severity_df = pd.DataFrame({
             'Severity': list(severity_counts.keys()),
             'Count': list(severity_counts.values())
@@ -162,7 +191,7 @@ def show_privacy_insights():
         # Detection types
         pattern_types = []
         for event in events:
-            patterns = event.get_detected_patterns()
+            patterns = event.get('detected_patterns', {})
             if patterns:
                 for pattern_type in patterns.keys():
                     pattern_types.append(pattern_type)
@@ -174,7 +203,9 @@ def show_privacy_insights():
         }).sort_values('Count', ascending=False)
         
         # Time series data
-        dates = [event.timestamp.date() for event in events]
+        dates = [event.get('timestamp').date() if isinstance(event.get('timestamp'), datetime) else None for event in events]
+        # Remove None values
+        dates = [date for date in dates if date is not None]
         date_counts = Counter(dates)
         date_df = pd.DataFrame({
             'Date': list(date_counts.keys()),
@@ -224,15 +255,15 @@ def show_privacy_insights():
             # Create a more readable dataframe
             data = []
             for event in events:
-                patterns = event.get_detected_patterns()
+                patterns = event.get('detected_patterns', {})
                 pattern_str = ', '.join([f"{k}: {len(v)}" for k, v in patterns.items()]) if patterns else "None"
                 data.append({
-                    'Timestamp': event.timestamp,
-                    'User ID': event.user_id,
-                    'Action': event.action,
-                    'Severity': event.severity,
+                    'Timestamp': event.get('timestamp', 'Unknown'),
+                    'User ID': event.get('user_id', 'Unknown'),
+                    'Action': event.get('action', 'Unknown'),
+                    'Severity': event.get('severity', 'Unknown'),
                     'Detected Patterns': pattern_str,
-                    'Files': event.file_names if event.file_names else "None"
+                    'Files': event.get('file_names', 'None') if event.get('file_names') else "None"
                 })
             
             events_df = pd.DataFrame(data)

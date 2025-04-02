@@ -7,12 +7,15 @@ def create_sidebar(page_name=""):
     Args:
         page_name: Optional identifier for the current page to create unique button keys
     """
-    # Ensure we don't create duplicate sidebars
-    if "sidebar_created" in st.session_state:
+    # Ensure we don't create duplicate sidebars if the current page has already created it
+    # But ensure we create a sidebar if we're on a different page now
+    sidebar_key = f"sidebar_created_{page_name}"
+    if "sidebar_created" in st.session_state and sidebar_key in st.session_state:
         return
     
-    # Mark sidebar as created for this session
+    # Mark sidebar as created for this session with the page name
     st.session_state.sidebar_created = True
+    st.session_state[sidebar_key] = True
     with st.sidebar:
         st.image("https://img.icons8.com/fluency/96/privacy.png", width=60)
         st.title("PrivacyChatBoX")
