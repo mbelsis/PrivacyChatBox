@@ -332,8 +332,32 @@ if not st.session_state.authenticated:
         st.write("Automatically replace or mask detected sensitive information before sending to AI models.")
 
 else:
-    # Redirect to the chat page by switching pages
-    st.switch_page("pages/chat.py")
+    # Welcome dashboard for authenticated users
+    st.title(f"Welcome back, {st.session_state.username}!")
+    st.write("### Please select an option from the sidebar menu")
+    
+    st.info("👈 Use the sidebar navigation on the left to access different features.")
+    
+    # Quick access cards
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.info("💬 **Chat**")
+        st.write("Start a new conversation with AI")
+        if st.button("Open Chat", key="home_chat_btn"):
+            st.switch_page("pages/chat.py")
+    
+    with col2:
+        st.info("📜 **History**") 
+        st.write("View your past conversations")
+        if st.button("Open History", key="home_history_btn"):
+            st.switch_page("pages/history.py")
+    
+    with col3:
+        st.info("⚙️ **Settings**")
+        st.write("Configure your AI and privacy settings")
+        if st.button("Open Settings", key="home_settings_btn"):
+            st.switch_page("pages/settings.py")
 
 # Footer
 st.markdown("---")
