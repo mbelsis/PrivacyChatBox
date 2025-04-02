@@ -190,7 +190,7 @@ def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tu
 
 def check_azure_auth_params():
     """Check if Azure AD auth parameters are set in URL"""
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     
     code = query_params.get("code", [None])[0]
     state = query_params.get("state", [None])[0]
@@ -199,7 +199,7 @@ def check_azure_auth_params():
         success = process_auth_code(code, state)
         
         # Clear URL parameters
-        st.experimental_set_query_params()
+        st.query_params.clear()
         
         return success
     
