@@ -65,25 +65,26 @@ def create_new_conversation(user_id: int, title: str = "New Conversation") -> in
     Returns:
         ID of the created conversation
     """
-    session = get_session()
-    
-    # Create new conversation
-    conversation = Conversation(
-        user_id=user_id,
-        title=title
-    )
-    
-    session.add(conversation)
-    session.commit()
-    
-    # Get the new conversation ID
-    conversation_id = conversation.id
-    
-    session.close()
-    
-    return conversation_id
+    try:
+        with session_scope() as session:
+            # Create new conversation
+            conversation = Conversation(
+                user_id=user_id,
+                title=title
+            )
+            
+            session.add(conversation)
+            
+            # Get the new conversation ID (available after flush)
+            session.flush()
+            conversation_id = conversation.id
+            
+            return conversation_id
+    except Exception as e:
+        print(f"Error creating conversation: {str(e)}")
+        return -1
 
-def get_conversations(user_id: int) -> List[Conversation]:
+def get_conversations(user_id: int) -> List[Dict[str, Any]]:
     """
     Get all conversations for a user
     
@@ -91,33 +92,51 @@ def get_conversations(user_id: int) -> List[Conversation]:
         user_id: ID of the user
         
     Returns:
-        List of conversation objects
+        List of dictionaries with conversation data
     """
-    session = get_session()
-    
-    # Get conversations with message count
-    from sqlalchemy import func
-    from sqlalchemy.orm import aliased, joinedload
-    
-    # Create an alias for the Message class
-    Message_alias = aliased(Message)
-    
-    # Query conversations along with their message count
-    conversations = session.query(Conversation)\
-        .options(joinedload(Conversation.messages))\
-        .filter(Conversation.user_id == user_id)\
-        .order_by(Conversation.updated_at.desc())\
-        .all()
-    
-    # Detach objects from session
-    if conversations:
-        session.expunge_all()
-    
-    session.close()
-    
-    return conversations
+    try:
+        # Get conversations with message count
+        from sqlalchemy import func
+        from sqlalchemy.orm import aliased, joinedload
+        
+        # Create an alias for the Message class
+        Message_alias = aliased(Message)
+        
+        with session_scope() as session:
+            # Query conversations along with their message count
+            conversations = session.query(Conversation)\
+                .options(joinedload(Conversation.messages))\
+                .filter(Conversation.user_id == user_id)\
+                .order_by(Conversation.updated_at.desc())\
+                .all()
+            
+            # Convert to list of dictionaries to avoid detached instance issues
+            conversation_list = []
+            for conv in conversations:
+                message_list = []
+                for msg in conv.messages:
+                    message_list.append({
+                        "id": msg.id,
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": msg.timestamp
+                    })
+                
+                conversation_list.append({
+                    "id": conv.id,
+                    "user_id": conv.user_id,
+                    "title": conv.title,
+                    "created_at": conv.created_at,
+                    "updated_at": conv.updated_at,
+                    "messages": message_list
+                })
+                
+            return conversation_list
+    except Exception as e:
+        print(f"Error retrieving conversations: {str(e)}")
+        return []
 
-def get_conversation(conversation_id: int) -> Optional[Conversation]:
+def get_conversation(conversation_id: int) -> Optional[Dict[str, Any]]:
     """
     Get a specific conversation with all its messages
     
@@ -125,29 +144,61 @@ def get_conversation(conversation_id: int) -> Optional[Conversation]:
         conversation_id: ID of the conversation
         
     Returns:
-        Conversation object or None if not found
+        Dictionary with conversation data or None if not found
     """
-    session = get_session()
-    
-    # Use eager loading to load the messages and files
-    from sqlalchemy.orm import joinedload
-    
-    conversation = session.query(Conversation)\
-        .options(
-            joinedload(Conversation.messages).joinedload(Message.files)
-        )\
-        .filter(Conversation.id == conversation_id)\
-        .first()
-    
-    # Important: If the conversation exists, make a detached copy of it
-    # so we can use it after the session is closed
-    if conversation:
-        # This keeps the loaded relationships intact
-        session.expunge_all()
+    try:
+        # Use eager loading to load the messages and files
+        from sqlalchemy.orm import joinedload
         
-    session.close()
-    
-    return conversation
+        with session_scope() as session:
+            conversation = session.query(Conversation)\
+                .options(
+                    joinedload(Conversation.messages).joinedload(Message.files)
+                )\
+                .filter(Conversation.id == conversation_id)\
+                .first()
+            
+            if not conversation:
+                return None
+            
+            # Convert to dictionary to avoid detached instance issues
+            # First, create message dictionaries including file data
+            message_list = []
+            for msg in conversation.messages:
+                # Convert files to dictionaries
+                files_list = []
+                for file in msg.files:
+                    files_list.append({
+                        "id": file.id,
+                        "original_name": file.original_name,
+                        "path": file.path,
+                        "mime_type": file.mime_type,
+                        "size": file.size,
+                        "scan_result": file.scan_result
+                    })
+                
+                message_list.append({
+                    "id": msg.id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                    "files": files_list
+                })
+            
+            # Create the conversation dictionary with all data
+            conversation_dict = {
+                "id": conversation.id,
+                "user_id": conversation.user_id,
+                "title": conversation.title,
+                "created_at": conversation.created_at,
+                "updated_at": conversation.updated_at,
+                "messages": message_list
+            }
+            
+            return conversation_dict
+    except Exception as e:
+        print(f"Error retrieving conversation: {str(e)}")
+        return None
 
 def add_message_to_conversation(
     conversation_id: int, 
@@ -169,87 +220,78 @@ def add_message_to_conversation(
             - ID of the created message (0 if creation failed due to blocked files)
             - Error message if any files were blocked, None otherwise
     """
-    session = get_session()
-    
-    # Create new message
-    message = Message(
-        conversation_id=conversation_id,
-        role=role,
-        content=content
-    )
-    
-    session.add(message)
-    session.commit()
-    
-    error_message = None
-    
-    # Add files if provided
-    if uploaded_files:
-        # Get user ID from conversation for DLP checks
-        user_id = None
-        if MS_DLP_AVAILABLE:
+    try:
+        with session_scope() as session:
+            # Create new message
+            message = Message(
+                conversation_id=conversation_id,
+                role=role,
+                content=content
+            )
+            
+            session.add(message)
+            # Flush to get the message ID
+            session.flush()
+            message_id = message.id
+            
+            error_message = None
+            
+            # Add files if provided
+            if uploaded_files:
+                # Get user ID from conversation for DLP checks
+                user_id = None
+                if MS_DLP_AVAILABLE:
+                    conversation = session.query(Conversation).filter(
+                        Conversation.id == conversation_id
+                    ).first()
+                    if conversation:
+                        user_id = conversation.user_id
+                
+                for uploaded_file in uploaded_files:
+                    file_path, mime_type, file_size = save_uploaded_file(uploaded_file)
+                    
+                    # Check for Microsoft sensitivity labels if DLP integration is available
+                    if MS_DLP_AVAILABLE and user_id and is_dlp_integration_enabled(user_id):
+                        file_allowed, dlp_error = scan_file_for_sensitivity(
+                            user_id=user_id,
+                            file_path=file_path,
+                            file_name=uploaded_file.name,
+                            file_mime=mime_type
+                        )
+                        
+                        if not file_allowed:
+                            # File blocked by DLP
+                            # The session will be rolled back automatically by the context manager
+                            return 0, dlp_error
+                    
+                    # File is allowed, continue with adding it
+                    file = File(
+                        message_id=message_id,
+                        original_name=uploaded_file.name,
+                        path=file_path,
+                        mime_type=mime_type,
+                        size=file_size,
+                        scan_result={}
+                    )
+                    
+                    session.add(file)
+            
+            # Update conversation information
             conversation = session.query(Conversation).filter(
                 Conversation.id == conversation_id
             ).first()
+            
             if conversation:
-                user_id = conversation.user_id
-        
-        for uploaded_file in uploaded_files:
-            file_path, mime_type, file_size = save_uploaded_file(uploaded_file)
+                # Update conversation title based on first user message
+                if role == "user" and (not conversation.title or conversation.title == "New Conversation"):
+                    # Use the first ~30 characters of the message as the title
+                    new_title = content[:30] + "..." if len(content) > 30 else content
+                    conversation.title = new_title
             
-            # Check for Microsoft sensitivity labels if DLP integration is available
-            if MS_DLP_AVAILABLE and user_id and is_dlp_integration_enabled(user_id):
-                file_allowed, dlp_error = scan_file_for_sensitivity(
-                    user_id=user_id,
-                    file_path=file_path,
-                    file_name=uploaded_file.name,
-                    file_mime=mime_type
-                )
-                
-                if not file_allowed:
-                    # File blocked by DLP, return error
-                    session.close()
-                    # Clean up - delete the created message since we're aborting
-                    with session_scope() as cleanup_session:
-                        msg = cleanup_session.query(Message).filter(Message.id == message.id).first()
-                        if msg:
-                            cleanup_session.delete(msg)
-                    
-                    return 0, dlp_error
-            
-            # File is allowed, continue with adding it
-            file = File(
-                message_id=message.id,
-                original_name=uploaded_file.name,
-                path=file_path,
-                mime_type=mime_type,
-                size=file_size,
-                scan_result={}
-            )
-            
-            session.add(file)
-        
-        session.commit()
-    
-    # Update conversation timestamp
-    conversation = session.query(Conversation).filter(
-        Conversation.id == conversation_id
-    ).first()
-    
-    if conversation:
-        # Update conversation title based on first user message
-        if role == "user" and not conversation.title or conversation.title == "New Conversation":
-            # Use the first ~30 characters of the message as the title
-            new_title = content[:30] + "..." if len(content) > 30 else content
-            conversation.title = new_title
-            session.commit()
-    
-    # Get the new message ID
-    message_id = message.id
-    
-    session.close()
-    
-    return message_id, error_message
+            return message_id, error_message
+    except Exception as e:
+        print(f"Error adding message to conversation: {str(e)}")
+        return 0, f"Error: {str(e)}"
 
 def delete_conversation(conversation_id: int) -> bool:
     """
@@ -261,23 +303,22 @@ def delete_conversation(conversation_id: int) -> bool:
     Returns:
         Boolean indicating success
     """
-    session = get_session()
-    
-    # Find conversation
-    conversation = session.query(Conversation).filter(
-        Conversation.id == conversation_id
-    ).first()
-    
-    if not conversation:
-        session.close()
+    try:
+        with session_scope() as session:
+            # Find conversation
+            conversation = session.query(Conversation).filter(
+                Conversation.id == conversation_id
+            ).first()
+            
+            if not conversation:
+                return False
+            
+            # Delete the conversation (cascade should handle messages and files)
+            session.delete(conversation)
+            return True
+    except Exception as e:
+        print(f"Error deleting conversation: {str(e)}")
         return False
-    
-    # Delete the conversation (cascade should handle messages and files)
-    session.delete(conversation)
-    session.commit()
-    session.close()
-    
-    return True
 
 def update_user_settings(user_id: int, settings_data: Dict[str, Any]) -> bool:
     """

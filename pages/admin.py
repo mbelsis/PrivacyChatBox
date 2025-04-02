@@ -9,7 +9,7 @@ from datetime import datetime
 # Import custom modules
 from database import get_session, session_scope
 from models import User, Settings, DetectionEvent, Conversation
-from auth import create_user, delete_user, update_user_role
+from auth import create_user, delete_user, update_user_role, update_user_password
 from privacy_scanner import get_detection_events
 from utils import format_detection_events
 import shared_sidebar
@@ -236,6 +236,30 @@ AZURE_CLIENT_SECRET: ********
                     st.rerun()
                 else:
                     st.error("Failed to update user role")
+        
+        # Change user password
+        st.markdown("---")
+        st.subheader("Change User Password")
+        
+        # Let admin select a user from the dictionary data we created
+        change_pw_user_display = st.selectbox("Select User", list(user_options.keys()), key="change_pw_user")
+        change_pw_user_id = user_options[change_pw_user_display]
+        
+        # Password fields
+        new_password = st.text_input("New Password", type="password", key="new_pw")
+        confirm_password = st.text_input("Confirm New Password", type="password", key="confirm_pw")
+        
+        if st.button("Update Password"):
+            if not new_password:
+                st.error("Password cannot be empty")
+            elif new_password != confirm_password:
+                st.error("Passwords do not match")
+            else:
+                success = update_user_password(change_pw_user_id, new_password)
+                if success:
+                    st.success("Password updated successfully")
+                else:
+                    st.error("Failed to update password")
         
         # Delete user
         st.markdown("---")

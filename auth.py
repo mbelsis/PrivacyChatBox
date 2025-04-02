@@ -70,19 +70,22 @@ def authenticate(username, password):
     if not username or not password:
         return False, None, None
     
-    session = get_session()
-    user = session.query(User).filter(User.username == username).first()
-    
-    if user and user.password == hash_password(password):
-        # Store user info in session state
-        st.session_state.user_info = {
-            "user_id": user.id,
-            "username": user.username,
-            "role": user.role,
-            "exp": (datetime.utcnow() + timedelta(days=30)).isoformat()
-        }
-        
-        return True, user.id, user.role
+    try:
+        with session_scope() as session:
+            user = session.query(User).filter(User.username == username).first()
+            
+            if user and user.password == hash_password(password):
+                # Store user info in session state
+                st.session_state.user_info = {
+                    "user_id": user.id,
+                    "username": user.username,
+                    "role": user.role,
+                    "exp": (datetime.utcnow() + timedelta(days=30)).isoformat()
+                }
+                
+                return True, user.id, user.role
+    except Exception as e:
+        print(f"Authentication error: {str(e)}")
     
     return False, None, None
 
@@ -91,83 +94,106 @@ def create_user(username, password, role="user"):
     if not username or not password:
         return False
     
-    session = get_session()
-    
-    # Check if username already exists
-    existing_user = session.query(User).filter(User.username == username).first()
-    if existing_user:
-        session.close()
-        return False
-    
-    # Create new user
-    new_user = User(
-        username=username,
-        password=hash_password(password),
-        role=role
-    )
-    session.add(new_user)
-    
-    # Create default settings for the user
-    default_settings = Settings(
-        user=new_user,
-        llm_provider="openai",
-        ai_character="assistant",
-        openai_api_key="",
-        openai_model="gpt-4o",
-        claude_api_key="",
-        claude_model="claude-3-5-sonnet-20241022",
-        gemini_api_key="",
-        gemini_model="gemini-pro",
-        serpapi_key="",
-        local_model_path="",
-        scan_enabled=True,
-        scan_level="standard",
-        auto_anonymize=True,
-        disable_scan_for_local_model=True,
-        custom_patterns=[]
-    )
-    session.add(default_settings)
-    
     try:
-        session.commit()
-        return True
+        with session_scope() as session:
+            # Check if username already exists
+            existing_user = session.query(User).filter(User.username == username).first()
+            if existing_user:
+                return False
+            
+            # Create new user
+            new_user = User(
+                username=username,
+                password=hash_password(password),
+                role=role
+            )
+            session.add(new_user)
+            
+            # Create default settings for the user
+            default_settings = Settings(
+                user=new_user,
+                llm_provider="openai",
+                ai_character="assistant",
+                openai_api_key="",
+                openai_model="gpt-4o",
+                claude_api_key="",
+                claude_model="claude-3-5-sonnet-20241022",
+                gemini_api_key="",
+                gemini_model="gemini-1.5-pro", # Update to latest Gemini model
+                serpapi_key="",
+                local_model_path="",
+                scan_enabled=True,
+                scan_level="standard",
+                auto_anonymize=True,
+                disable_scan_for_local_model=True,
+                custom_patterns=[]
+            )
+            session.add(default_settings)
+            return True
     except IntegrityError:
-        session.rollback()
+        # Log error but don't need to rollback as session_scope handles it
+        print("Error creating user: Username already exists or other integrity error")
         return False
-    finally:
-        session.close()
+    except Exception as e:
+        print(f"Error creating user: {str(e)}")
+        return False
 
 def get_users():
     """Get all users"""
-    session = get_session()
-    users = session.query(User).all()
-    session.close()
-    return users
+    try:
+        with session_scope() as session:
+            users = session.query(User).all()
+            
+            # Create list of dictionaries with user data to avoid detached instance errors
+            user_list = []
+            for user in users:
+                user_dict = {
+                    "id": user.id,
+                    "username": user.username,
+                    "role": user.role,
+                    "created_at": user.created_at,
+                    "azure_id": user.azure_id if hasattr(user, 'azure_id') else None,
+                    "azure_name": user.azure_name if hasattr(user, 'azure_name') else None
+                }
+                user_list.append(user_dict)
+            
+            return user_list
+    except Exception as e:
+        print(f"Error retrieving users: {str(e)}")
+        return []
 
 def delete_user(user_id):
     """Delete a user"""
-    session = get_session()
-    user = session.query(User).filter(User.id == user_id).first()
-    
-    if user:
-        session.delete(user)
-        session.commit()
-        session.close()
-        return True
-    
-    session.close()
-    return False
+    with session_scope() as session:
+        user = session.query(User).filter(User.id == user_id).first()
+        
+        if user:
+            session.delete(user)
+            return True
+        
+        return False
 
 def update_user_role(user_id, new_role):
     """Update a user's role"""
-    session = get_session()
-    user = session.query(User).filter(User.id == user_id).first()
+    with session_scope() as session:
+        user = session.query(User).filter(User.id == user_id).first()
+        
+        if user:
+            user.role = new_role
+            return True
+        
+        return False
+        
+def update_user_password(user_id, new_password):
+    """Update a user's password"""
+    if not user_id or not new_password:
+        return False
     
-    if user:
-        user.role = new_role
-        session.commit()
-        session.close()
-        return True
-    
-    session.close()
-    return False
+    with session_scope() as session:
+        user = session.query(User).filter(User.id == user_id).first()
+        
+        if user:
+            user.password = hash_password(new_password)
+            return True
+        
+        return False
