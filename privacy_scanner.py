@@ -9,25 +9,56 @@ from models import User, Settings, DetectionEvent
 
 # Define standard regex patterns for sensitive data
 STANDARD_PATTERNS = {
-    "credit_card": r"\b(?:\d{4}[ -]?){3}\d{4}\b",
-    "ssn": r"\b\d{3}[-]?\d{2}[-]?\d{4}\b",
+    # Basic identifiers
+    "credit_card": r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b",
+    "ssn": r"\b(?!000|666|9\d{2})\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}\b",
     "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-    "phone_number": r"\b(?:\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
+    "phone_number": r"\b(?:\+?\d{1,3}[ -]?)?(?:\(?\d{2,4}\)?[ -]?)?\d{3,4}[ -]?\d{3,4}\b",
+    "msisdn": r"\+?[1-9]\d{6,14}\b",
     "ip_address": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
-    "date_of_birth": r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b",
-    "address": r"\b\d+\s+[A-Za-z0-9\s,]+\b(?:street|st|avenue|ave|road|rd|highway|hwy|square|sq|trail|trl|drive|dr|court|ct|parkway|pkwy|circle|cir|boulevard|blvd)\b\s*(?:[A-Za-z]+\s*,\s*)?(?:[A-Za-z]+\s*,\s*)?(?:\d{5}(?:-\d{4})?)?",
-    "password": r"\b(?:password|passwd|pwd)[\s:=]+\S+\b",
-    "api_key": r"\b(?:sk-|pk-|api[-_]?key|token)[-_a-zA-Z0-9]{10,}\b"
+    "date_of_birth": r"\b(?:\d{2}[/-]\d{2}[/-]\d{4}|\d{4}[/-]\d{2}[/-]\d{2})\b",
+    "address": r"\b\d{1,5}\s+(?:[A-Za-z]+\s?)+\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln)\b",
+    
+    # Credentials
+    "password": r"\b(password|passwd|pwd)[\"]?\s*[:=]\s*[\"]?.{6,}[\"]?\b",
+    "api_key": r"\b(?:api_key|apikey|access_token|token|secret|bearer)[\"]?\s*[:=]\s*[\"]?[A-Za-z0-9\-_]{16,64}[\"]?\b",
+    
+    # Cloud provider tokens
+    "aws_access_key": r"AKIA[0-9A-Z]{16}",
+    "aws_secret_key": r"(?i)aws_secret_access_key\s*[:=]\s*[\"]?[A-Za-z0-9/+=]{40}[\"]?",
+    "google_api_key": r"AIza[0-9A-Za-z\-_]{35}",
+    
+    # Classification terms
+    "classification": r"\b(confidential|strictly confidential|secret|internal use only|proprietary|classified)\b",
+    
+    # JWT token
+    "jwt": r"\beyJ[A-Za-z0-9\-_]+?\.eyJ[A-Za-z0-9\-_]+?\.[A-Za-z0-9\-_]+\b",
+    
+    # Private keys
+    "private_key": r"-----BEGIN (RSA|DSA|EC|OPENSSH)? PRIVATE KEY-----"
 }
 
 # Additional patterns for strict scanning
 STRICT_PATTERNS = {
     **STANDARD_PATTERNS,
-    "name": r"\b(?:Mr\.|Mrs\.|Ms\.|Dr\.|Prof\.)\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b",
+    # Names and personal info
+    "name": r"\b([A-Z][a-z]+ [A-Z][a-z]+)\b",
+    
+    # URLs and web resources
     "url": r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)",
+    
+    # IDs and identifiers
     "uuid": r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
     "passport": r"\b[A-Z]{1,2}[0-9]{6,9}\b",
-    "bank_account": r"\b[0-9]{8,17}\b"
+    
+    # Financial information
+    "iban": r"\b[A-Z]{2}\d{2}(?:[ ]?[0-9A-Z]){11,30}\b",
+    "bank_account": r"\b[0-9]{8,17}\b",
+    
+    # Regional specific identifiers
+    "uk_nino": r"\b(?!BG|GB|NK|KN|TN|NT|ZZ)([A-CEGHJ-PR-TW-Z]{2})\d{6}[A-D]\b",
+    "greek_amka": r"\b\d{11}\b",
+    "greek_tax_id": r"\b\d{9}\b"
 }
 
 def get_user_settings(user_id: int) -> Optional[Settings]:
@@ -166,7 +197,7 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
             elif pattern_type == "email":
                 # Replace with "email@redacted.com"
                 replacement = "email@redacted.com"
-            elif pattern_type == "phone_number":
+            elif pattern_type == "phone_number" or pattern_type == "msisdn":
                 # Replace with "(XXX) XXX-1234" (keeping last 4 digits if possible)
                 last_four = match[-4:] if len(match) >= 4 else "1234"
                 replacement = f"(XXX) XXX-{last_four}"
@@ -182,7 +213,7 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
             elif pattern_type == "password":
                 # Replace with "password: [REDACTED]"
                 replacement = "password: [REDACTED]"
-            elif pattern_type == "api_key":
+            elif pattern_type == "api_key" or "key" in pattern_type or "token" in pattern_type:
                 # Replace with "[REDACTED API KEY]"
                 replacement = "[REDACTED API KEY]"
             elif pattern_type == "name":
@@ -197,9 +228,30 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
             elif pattern_type == "passport":
                 # Replace with "[REDACTED PASSPORT]"
                 replacement = "[REDACTED PASSPORT]"
-            elif pattern_type == "bank_account":
+            elif pattern_type == "bank_account" or pattern_type == "iban":
                 # Replace with "[REDACTED BANK ACCOUNT]"
                 replacement = "[REDACTED BANK ACCOUNT]"
+            elif pattern_type == "aws_access_key" or pattern_type == "aws_secret_key":
+                # Replace with "[REDACTED AWS KEY]"
+                replacement = "[REDACTED AWS KEY]"
+            elif pattern_type == "google_api_key":
+                # Replace with "[REDACTED GOOGLE API KEY]"
+                replacement = "[REDACTED GOOGLE API KEY]"
+            elif pattern_type == "classification":
+                # Replace with "[CLASSIFIED DOCUMENT]"
+                replacement = "[CLASSIFIED DOCUMENT]"
+            elif pattern_type == "jwt":
+                # Replace with "[REDACTED JWT TOKEN]"
+                replacement = "[REDACTED JWT TOKEN]"
+            elif pattern_type == "private_key":
+                # Replace with "[REDACTED PRIVATE KEY]"
+                replacement = "[REDACTED PRIVATE KEY]"
+            elif pattern_type == "uk_nino":
+                # Replace with "[REDACTED UK NINO]"
+                replacement = "[REDACTED UK NINO]"
+            elif pattern_type == "greek_amka" or pattern_type == "greek_tax_id":
+                # Replace with "[REDACTED GREEK ID]"
+                replacement = "[REDACTED GREEK ID]"
             else:
                 # Generic replacement for custom patterns
                 replacement = f"[REDACTED {pattern_type.upper()}]"

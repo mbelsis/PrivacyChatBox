@@ -62,10 +62,6 @@ def create_sidebar(page_name=""):
                 # Admin-only options
                 if st.session_state.role == "admin":
                     menu_options["admin"] = {"icon": "👑", "label": "Admin Panel", "path": "pages/admin.py", "color": "#f3e5f5"}
-                    # Temporarily display analytics as disabled
-                    with st.sidebar:
-                        st.markdown("📊 Analytics (Maintenance)")
-                    # Removed problematic analytics page from navigation
                 
                 # Create buttons for each menu option
                 for key, option in menu_options.items():
