@@ -1,4 +1,8 @@
 import streamlit as st
+from style import apply_custom_css
+
+# Apply custom CSS to hide default menu
+apply_custom_css()
 import json
 
 # Import custom modules

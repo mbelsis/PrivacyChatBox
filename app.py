@@ -8,6 +8,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Import and apply custom CSS
+from style import apply_custom_css
+apply_custom_css()
+
 from datetime import datetime
 import os
 import uuid

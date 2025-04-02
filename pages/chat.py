@@ -1,4 +1,8 @@
 import streamlit as st
+from style import apply_custom_css
+
+# Apply custom CSS to hide default menu
+apply_custom_css()
 import time
 from datetime import datetime
 import pandas as pd

@@ -12,3 +12,5 @@ font = "sans serif"
 
 [logger]
 level = "info"
+
+# UI settings - using custom CSS instead
