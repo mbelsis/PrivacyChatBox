@@ -533,6 +533,14 @@ def show():
             # Get the currently selected model and character (from temporary session state)
             selected_model = st.session_state.get("temp_model", "")
             selected_character = st.session_state.get("temp_character", settings.ai_character)
+            
+            # Check if this is the first message or if character has changed
+            is_first_message = len(conversation.messages) <= 1  # Only one message (the current one)
+            last_character = st.session_state.get("last_used_character", None)
+            character_changed = last_character is not None and last_character != selected_character
+            
+            # Store the current character for future comparison
+            st.session_state["last_used_character"] = selected_character
         
             # Prepare messages for AI
             ai_messages = []
@@ -541,6 +549,29 @@ def show():
             system_prompt = create_system_prompt(selected_character)
             # Always make system message the first message in the conversation
             ai_messages = [{"role": "system", "content": system_prompt}]
+            
+            # Add a special initialization prompt if this is the first message or if character changed
+            role_name = selected_character.replace("_", " ").title()
+            if is_first_message:
+                # Add a special first message to establish the role
+                ai_messages.append({
+                    "role": "user", 
+                    "content": f"From now on, you will respond as a {role_name}. Your first response should establish this character."
+                })
+                ai_messages.append({
+                    "role": "assistant", 
+                    "content": f"I understand. I'll be responding as a {role_name} from now on."
+                })
+            elif character_changed:
+                # Add a character change notification
+                ai_messages.append({
+                    "role": "user", 
+                    "content": f"The user has changed your role. From now on, you will respond as a {role_name}."
+                })
+                ai_messages.append({
+                    "role": "assistant", 
+                    "content": f"I understand. I'll now be responding as a {role_name}."
+                })
             
             # Add conversation history (limit to avoid token limits, but ensure the system message stays)
             # Only include the most recent 10 messages from the conversation
