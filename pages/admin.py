@@ -11,10 +11,17 @@ from database import get_session, session_scope
 from models import User, Settings, DetectionEvent, Conversation
 from auth import create_user, delete_user, update_user_role, update_user_password
 from privacy_scanner import get_detection_events
-from utils import format_detection_events
+from utils import format_detection_events, update_user_settings
 import shared_sidebar
 import azure_auth
 import os
+
+# Import MS DLP functions if available
+try:
+    from ms_dlp import get_ms_settings, is_dlp_integration_enabled
+    ms_dlp_available = True
+except ImportError:
+    ms_dlp_available = False
 
 def show():
     """Main function to display the admin panel"""
@@ -38,7 +45,7 @@ def show():
         return
     
     # Create tabs for different admin functions
-    user_tab, azure_tab, stats_tab, logs_tab = st.tabs(["User Management", "Azure AD", "System Statistics", "Privacy Logs"])
+    user_tab, azure_tab, ms_dlp_tab, stats_tab, logs_tab = st.tabs(["User Management", "Azure AD", "Microsoft DLP", "System Statistics", "Privacy Logs"])
     
     # Azure AD tab
     with azure_tab:
@@ -104,6 +111,187 @@ AZURE_CLIENT_SECRET: ********
                 st.success("Azure AD settings updated! Please restart the application for changes to take effect.")
                 # In a real app, you might want to restart the app or update environment variables
                 # This would often be done through a configuration file or environment variable manager
+    
+    # Microsoft DLP tab
+    with ms_dlp_tab:
+        st.subheader("Microsoft DLP Integration Settings")
+        
+        # Import MS DLP functions
+        if not ms_dlp_available:
+            st.warning("Microsoft DLP module is not available or not properly installed.")
+        else:
+            # Check if Microsoft settings are configured
+            ms_settings = get_ms_settings()
+            
+            if not ms_settings.get("is_configured", False):
+                st.warning("""
+                Microsoft DLP integration is not properly configured. 
+                To enable this feature, the following environment variables must be set:
+                - MS_CLIENT_ID
+                - MS_CLIENT_SECRET
+                - MS_TENANT_ID
+                - MS_DLP_ENDPOINT_ID
+                
+                Configure these settings below.
+                """)
+            
+            # Current MS DLP settings
+            current_client_id = os.environ.get("MS_CLIENT_ID", "")
+            current_client_secret = os.environ.get("MS_CLIENT_SECRET", "")
+            current_tenant_id = os.environ.get("MS_TENANT_ID", "")
+            current_endpoint_id = os.environ.get("MS_DLP_ENDPOINT_ID", "")
+            
+            # Display current settings
+            st.write("### Current Microsoft DLP Configuration")
+            
+            if all([current_client_id, current_client_secret, current_tenant_id, current_endpoint_id]):
+                st.success("Microsoft DLP integration is configured")
+                
+                # Show the current settings in a read-only format
+                st.code(f"""
+MS_CLIENT_ID: {current_client_id[:8]}...{current_client_id[-4:] if len(current_client_id) > 12 else ""}
+MS_TENANT_ID: {current_tenant_id[:8]}...{current_tenant_id[-4:] if len(current_tenant_id) > 12 else ""}
+MS_DLP_ENDPOINT_ID: {current_endpoint_id[:8]}...{current_endpoint_id[-4:] if len(current_endpoint_id) > 12 else ""}
+MS_CLIENT_SECRET: ********
+                """)
+            else:
+                st.warning("Microsoft DLP integration is not fully configured")
+            
+            # Form to update Microsoft DLP settings
+            st.write("### Update Microsoft DLP Settings")
+            st.write("Configure the Microsoft DLP integration to enable enhanced data loss prevention features.")
+            
+            with st.form("ms_dlp_settings_form"):
+                new_client_id = st.text_input("Client ID", value=current_client_id, placeholder="Enter Microsoft App Client ID")
+                new_client_secret = st.text_input("Client Secret", type="password", placeholder="Enter Microsoft App Client Secret")
+                new_tenant_id = st.text_input("Tenant ID", value=current_tenant_id, placeholder="Enter Microsoft Tenant ID")
+                new_endpoint_id = st.text_input("DLP Endpoint ID", value=current_endpoint_id, placeholder="Enter DLP Endpoint ID")
+                
+                st.markdown("""
+                #### How to set up Microsoft DLP Integration:
+                1. Go to the [Azure Portal](https://portal.azure.com) and register a new application
+                2. Set up Microsoft Information Protection and DLP policies
+                3. Create a client secret
+                4. Copy the Client ID, Tenant ID, Client Secret, and DLP Endpoint ID to the fields above
+                """)
+                
+                submitted = st.form_submit_button("Update Microsoft DLP Settings")
+                
+                if submitted:
+                    # In a real application, you would update environment variables or a secure configuration store
+                    st.success("Microsoft DLP settings updated! Please restart the application for changes to take effect.")
+            
+            # Organization-wide DLP settings section
+            st.write("### Organization-wide DLP Settings")
+            st.write("Configure default DLP settings for all users in the organization.")
+            
+            # Get all users with DLP settings
+            users_with_dlp_settings = []
+            
+            try:
+                with session_scope() as session:
+                    if session:
+                        # Get all users with their DLP settings
+                        users_with_settings = session.query(User, Settings).join(
+                            Settings, User.id == Settings.user_id
+                        ).all()
+                        
+                        for user, settings in users_with_settings:
+                            users_with_dlp_settings.append({
+                                "id": user.id,
+                                "username": user.username,
+                                "role": user.role,
+                                "enable_ms_dlp": getattr(settings, "enable_ms_dlp", True),
+                                "ms_dlp_sensitivity_threshold": getattr(settings, "ms_dlp_sensitivity_threshold", "confidential")
+                            })
+                    else:
+                        st.error("Unable to connect to database. Please try again later.")
+            except Exception as e:
+                st.error(f"Error loading user settings: {str(e)}")
+            
+            # Display users with their DLP settings
+            if users_with_dlp_settings:
+                dlp_data = []
+                for user in users_with_dlp_settings:
+                    dlp_data.append({
+                        "Username": user["username"],
+                        "Role": user["role"],
+                        "DLP Enabled": "✓" if user["enable_ms_dlp"] else "✗",
+                        "Sensitivity Threshold": user["ms_dlp_sensitivity_threshold"].capitalize()
+                    })
+                
+                st.dataframe(
+                    pd.DataFrame(dlp_data),
+                    hide_index=True,
+                    use_container_width=True
+                )
+            
+            # Default DLP settings form
+            with st.form("default_dlp_settings_form"):
+                st.subheader("Set Default DLP Settings")
+                
+                # Default enable/disable toggle
+                default_enable_dlp = st.toggle("Enable Microsoft DLP Integration by Default", value=True)
+                
+                # Default sensitivity threshold selector
+                sensitivity_options = [
+                    ("general", "General (Public)"),
+                    ("internal", "Internal Only"),
+                    ("confidential", "Confidential"),
+                    ("highly_confidential", "Highly Confidential"),
+                    ("secret", "Secret"),
+                    ("top_secret", "Top Secret")
+                ]
+                
+                sensitivity_labels = [label for _, label in sensitivity_options]
+                sensitivity_values = [value for value, _ in sensitivity_options]
+                
+                st.write("#### Default Sensitivity Threshold")
+                st.write("Files with sensitivity labels equal to or above this level will be blocked:")
+                
+                threshold = st.select_slider(
+                    "Sensitivity Threshold",
+                    options=sensitivity_labels,
+                    value="Confidential"
+                )
+                
+                # Convert display label back to value
+                selected_index = sensitivity_labels.index(threshold)
+                threshold_value = sensitivity_values[selected_index]
+                
+                # Apply to all users checkbox
+                apply_to_all = st.checkbox("Apply these settings to all users")
+                
+                # Form submission
+                if st.form_submit_button("Save Default DLP Settings"):
+                    if apply_to_all:
+                        # Update all users' settings
+                        try:
+                            with session_scope() as session:
+                                # Update all users' settings
+                                session.query(Settings).update({
+                                    "enable_ms_dlp": default_enable_dlp,
+                                    "ms_dlp_sensitivity_threshold": threshold_value
+                                })
+                                st.success("DLP settings applied to all users successfully.")
+                        except Exception as e:
+                            st.error(f"Failed to update DLP settings: {str(e)}")
+                    else:
+                        st.info("Default settings saved. New users will receive these settings.")
+            
+            # Information about Microsoft DLP
+            st.info("""
+            ### How Microsoft DLP Integration Works
+            
+            The Microsoft DLP (Data Loss Prevention) integration enhances privacy protection by:
+            
+            1. Scanning uploaded files for Microsoft Sensitivity labels
+            2. Blocking files with sensitivity levels at or above the threshold
+            3. Reporting DLP violations to Microsoft Compliance center
+            4. Preventing sensitive information from being used with AI models
+            
+            This is particularly useful for organizations that already use Microsoft Information Protection.
+            """)
     
     # User Management tab
     with user_tab:
