@@ -637,6 +637,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jose"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pycrypto" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/01/3d/832caa69cd0d3be2d608d8290be2221072669aa88e87690837f6b31c480f/jose-1.0.0.tar.gz", hash = "sha256:8436c3617cd94e1ba97828fbb1ce27c129f66c78fb855b4bb47e122b5f345fba", size = 9153 }
+
+[[package]]
 name = "jsonschema"
 version = "4.23.0"
 source = { registry = "https://pypi.org/simple" }
@@ -923,6 +932,7 @@ dependencies = [
     { name = "anthropic" },
     { name = "google-generativeai" },
     { name = "google-search-results" },
+    { name = "jose" },
     { name = "msal" },
     { name = "openai" },
     { name = "pandas" },
@@ -942,6 +952,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.49.0" },
     { name = "google-generativeai", specifier = ">=0.3.0" },
     { name = "google-search-results", specifier = ">=2.4.2" },
+    { name = "jose", specifier = ">=1.0.0" },
     { name = "msal", specifier = ">=1.32.0" },
     { name = "openai", specifier = ">=1.70.0" },
     { name = "pandas", specifier = ">=2.0.0" },
@@ -1089,6 +1100,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/1d/b2/31537cf4b1ca98883
 wheels = [
     { url = "https://files.pythonhosted.org/packages/13/a3/a812df4e2dd5696d1f351d58b8fe16a405b234ad2886a0dab9183fb78109/pycparser-2.22-py3-none-any.whl", hash = "sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc", size = 117552 },
 ]
+
+[[package]]
+name = "pycrypto"
+version = "2.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/db/645aa9af249f059cc3a368b118de33889219e0362141e75d4eaf6f80f163/pycrypto-2.6.1.tar.gz", hash = "sha256:f2ce1e989b272cfcb677616763e0a2e7ec659effa67a88aa92b3a65528f60a3c", size = 446240 }
 
 [[package]]
 name = "pydantic"

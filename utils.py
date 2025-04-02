@@ -283,38 +283,52 @@ def format_detection_events(events: List) -> List[Dict[str, Any]]:
     for event in events:
         try:
             # Extract all attributes to prevent detached instance errors
-            # Format timestamp
-            timestamp = event.timestamp.strftime("%Y-%m-%d %H:%M:%S") if event.timestamp else "Unknown"
-            
-            # Get user_id
-            user_id = event.user_id
-            
-            # Get action, severity, and file_names
-            action = event.action if hasattr(event, 'action') else "unknown"
-            severity = event.severity if hasattr(event, 'severity') else "unknown"
-            file_names = event.file_names if hasattr(event, 'file_names') else ""
-            
-            # Get detection count and patterns safely
-            try:
-                detected_patterns = event.get_detected_patterns() if hasattr(event, 'get_detected_patterns') else {}
-            except Exception:
-                # Fallback if get_detected_patterns fails
-                detected_patterns = {}
-                
-            detection_count = sum(len(matches) for matches in detected_patterns.values())
-            
-            # Format event as a dictionary to avoid SQLAlchemy object references
-            formatted_event = {
-                "id": user_id,  # Changed from event.id to user_id
-                "timestamp": timestamp,
-                "action": action,
-                "severity": severity,
-                "detection_count": detection_count,
-                "detected_patterns": detected_patterns,
-                "file_names": file_names
+            # Copy all attributes immediately to avoid further access to the detached object
+            event_dict = {
+                "id": getattr(event, 'id', 0),
+                "user_id": getattr(event, 'user_id', 0),
+                "timestamp": getattr(event, 'timestamp', None),
+                "action": getattr(event, 'action', "unknown"),
+                "severity": getattr(event, 'severity', "unknown"),
+                "file_names": getattr(event, 'file_names', ""),
+                "detected_patterns": getattr(event, 'detected_patterns', {})
             }
             
-            formatted_events.append(formatted_event)
+            # Format timestamp
+            timestamp = event_dict["timestamp"].strftime("%Y-%m-%d %H:%M:%S") if event_dict["timestamp"] else "Unknown"
+            event_dict["timestamp"] = timestamp
+            
+            # Handle detected_patterns without calling methods on possibly detached instance
+            try:
+                # Try to access directly if possible
+                if isinstance(event_dict["detected_patterns"], dict):
+                    detected_patterns = event_dict["detected_patterns"]
+                else:
+                    # If it's not a dict already, try to use the JSON data directly
+                    import json
+                    if hasattr(event, 'detected_patterns') and event.detected_patterns is not None:
+                        if isinstance(event.detected_patterns, str):
+                            detected_patterns = json.loads(event.detected_patterns)
+                        else:
+                            detected_patterns = {}
+                    else:
+                        detected_patterns = {}
+            except Exception:
+                # Fallback if anything fails
+                detected_patterns = {}
+            
+            # Calculate detection count safely
+            try:
+                detection_count = sum(len(matches) for matches in detected_patterns.values() if isinstance(matches, list))
+            except Exception:
+                detection_count = 0
+            
+            # Update the dictionary with processed values
+            event_dict["detected_patterns"] = detected_patterns
+            event_dict["detection_count"] = detection_count
+            
+            formatted_events.append(event_dict)
+            
         except Exception as e:
             # Log the error but continue processing other events
             print(f"Error formatting event: {e}")
