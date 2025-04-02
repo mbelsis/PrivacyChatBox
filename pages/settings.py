@@ -11,7 +11,7 @@ from database import get_session
 from models import Settings
 from ai_providers import get_available_models
 from utils import update_user_settings
-from privacy_scanner import STANDARD_PATTERNS, STRICT_PATTERNS
+from privacy_scanner import STANDARD_PATTERNS, STRICT_PATTERNS, DEFAULT_PATTERNS
 import shared_sidebar
 
 def show():
@@ -330,7 +330,7 @@ def show():
             st.markdown("### All Available Patterns")
             st.markdown("These are the system-defined patterns that detect sensitive information:")
             
-            # Group patterns by category
+            # Group patterns by category and level
             categories = {
                 "Basic identifiers": ["credit_card", "ssn", "email", "phone_number", "msisdn", "ip_address", "date_of_birth", "address"],
                 "Credentials": ["password", "api_key", "jwt"],
@@ -342,12 +342,18 @@ def show():
                 "Other": ["url", "uuid"]
             }
             
-            # For each category, show the available patterns
+            # Create a mapping of pattern names to their levels
+            pattern_levels = {pattern["name"]: pattern["level"] for pattern in DEFAULT_PATTERNS}
+            
+            # For each category, show the available patterns with their levels
             for category, pattern_keys in categories.items():
                 st.markdown(f"#### {category}")
                 for key in pattern_keys:
                     if key in pattern_set:
-                        st.code(f"{key}: {pattern_set[key]}")
+                        level = pattern_levels.get(key, "standard")
+                        level_badge = f"<span style='background-color:#E8F5E9;padding:2px 6px;border-radius:3px;font-size:0.8em;'>STANDARD</span>" if level == "standard" else f"<span style='background-color:#FFEBEE;padding:2px 6px;border-radius:3px;font-size:0.8em;'>STRICT</span>"
+                        st.markdown(f"**{key}** {level_badge}", unsafe_allow_html=True)
+                        st.code(f"{pattern_set[key]}")
                 st.markdown("---")
         
         # Auto-anonymize option

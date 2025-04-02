@@ -108,6 +108,13 @@ def main():
     else:
         logger.info("Local LLM columns exist")
     
+    # Run pattern levels migration to ensure all custom patterns have level attribute
+    logger.info("Running pattern levels migration...")
+    if run_migration("migration_pattern_levels"):
+        logger.info("Pattern levels migration successful")
+    else:
+        logger.error("Pattern levels migration failed")
+    
     # Final check after migrations
     dlp_columns_exist, missing_dlp_columns = check_columns_exist("settings", DLP_COLUMNS)
     llm_columns_exist, missing_llm_columns = check_columns_exist("settings", LOCAL_LLM_COLUMNS)
