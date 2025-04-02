@@ -6,25 +6,40 @@ def apply_custom_css():
     # Apply basic styles that hide default Streamlit UI elements
     base_styles = """
     <style>
-        /* Hide hamburger menu */
-        button[kind="header"] {
+        /* Hide hamburger menu more aggressively */
+        button[kind="header"],
+        .stApp header button,
+        header button[data-testid="stApp"] {
             display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
         }
         
         /* Hide header decoration */
-        .stApp > header {
-            background-color: transparent;
+        .stApp > header,
+        header[data-testid="stHeader"] {
+            background-color: transparent !important;
             display: none !important;
+            height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }
         
         /* Remove top padding from sidebar */
-        section[data-testid="stSidebar"] > div.css-1oe6ov4.e1fqkh3o3 {
-            padding-top: 0.5rem;
+        section[data-testid="stSidebar"] > div {
+            padding-top: 0.5rem !important;
         }
         
-        /* Hide only the default Streamlit navigation, not the sidebar itself */
-        div[data-testid="stSidebarNav"] {
+        /* Hide default Streamlit navigation menu */
+        div[data-testid="stSidebarNav"],
+        [data-testid="stSidebarNav"] {
             display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            width: 0 !important;
+            position: absolute !important;
+            overflow: hidden !important;
         }
         
         /* Fix sidebar width to prevent trembling */
