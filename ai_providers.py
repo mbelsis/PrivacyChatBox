@@ -213,107 +213,10 @@ def get_openai_response(
     client = openai.OpenAI(api_key=api_key)
     
     try:
-        # Extract the current context and user request
-        user_message = ""
-        for msg in messages:
-            if msg["role"] == "user" and msg == messages[-1]:
-                user_message = msg["content"]
-                
-        # Get the system message if it exists
-        system_content = ""
-        for msg in messages:
-            if msg["role"] == "system":
-                system_content = msg["content"]
-                break
-                
-        # If no system message, use a default one
-        if not system_content:
-            system_content = "You are a helpful, harmless, and honest AI assistant."
-            
-        # Ensure the system message emphasizes role adherence, especially for first responses
-        system_content += "\n\nCRITICAL: You MUST respond to ALL user messages while maintaining your assigned character role. Your VERY FIRST response should clearly establish your character."
-            
-        # Look for cues in the user message to determine what type of response is needed
-        code_request = any(phrase in user_message.lower() for phrase in 
-                          ["write code", "write a script", "write python", "python script", 
-                           "code example", "code sample", "function", "programming", 
-                           "implement", "create a program"])
-                           
-        # Also check for comparison/explanation questions
-        comparison_request = any(phrase in user_message.lower() for phrase in 
-                               ["difference between", "compare", "versus", "vs", 
-                                "what is", "how does", "explain", "describe"])
-        
-        # Extract the original role from system_content (assuming it contains the role information)
-        if "programmer" in system_content.lower():
-            role_type = "programmer"
-        elif "data analyst" in system_content.lower():
-            role_type = "data analyst"
-        elif "privacy expert" in system_content.lower():
-            role_type = "privacy expert"
-        else:
-            role_type = "assistant"
-        
-        # For code requests, add an explicit instruction to the system message
-        if code_request:
-            # Create an enhanced system message that forces the model to produce code
-            enhanced_system = f"""{system_content}
-            
-CRITICAL INSTRUCTION: The user is requesting code. You MUST respond with actual working code.
-DO NOT respond with explanations about a topic instead of code.
-DO NOT merely discuss code concepts without providing actual code.
-
-As a {role_type}, when asked to write code:
-1. Always provide a complete, working solution
-2. Use appropriate programming language syntax
-3. Include comments to explain your code
-4. Provide example usage if applicable
-5. Focus on providing functional, efficient code
-
-VERY IMPORTANT: Respond DIRECTLY with code, not with a discussion of the topic."""
-            
-            # Replace the system message with the enhanced version
-            for i, msg in enumerate(messages):
-                if msg["role"] == "system":
-                    messages[i]["content"] = enhanced_system
-                    break
-            
-            # If there was no system message, add the enhanced one
-            if not any(msg["role"] == "system" for msg in messages):
-                messages.insert(0, {"role": "system", "content": enhanced_system})
-        
-        # For comparison/explanation questions, add specific instructions
-        elif comparison_request:
-            # Create an enhanced system message for explanations based on the role
-            enhanced_system = f"""{system_content}
-
-IMPORTANT: The user is asking for {role_type}-specific information or a comparison.
-Respond with accurate, detailed information about the topic.
-Stay within your role as a {role_type} while providing this explanation.
-
-When comparing technologies or concepts:
-1. Provide clear definitions of each item being compared
-2. Highlight key differences and similarities
-3. Explain the practical implications of these differences
-4. If relevant to your role, offer recommendations based on the comparison
-5. Structure your response in a clear, organized manner
-
-Remember to maintain your {role_type} perspective throughout the explanation."""
-            
-            # Replace the system message with the enhanced version
-            for i, msg in enumerate(messages):
-                if msg["role"] == "system":
-                    messages[i]["content"] = enhanced_system
-                    break
-            
-            # If there was no system message, add the enhanced one
-            if not any(msg["role"] == "system" for msg in messages):
-                messages.insert(0, {"role": "system", "content": enhanced_system})
-                
         # Debug logging to show messages before API call
         print(f"OpenAI API call with messages: {json.dumps(messages, indent=2)}")
         
-        # Create completion request with clear parameters
+        # Simplify: Use the messages as provided without modifying them
         response = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -354,15 +257,13 @@ def get_claude_response(
     # Initialize Anthropic client
     client = Anthropic(api_key=api_key)
     
-    # Convert messages to Claude format
+    # Extract system message and other messages for Claude
     claude_messages = []
     system_content = None
     
     for msg in messages:
         if msg["role"] == "system":
             system_content = msg["content"]
-            # Enhance system content for Claude to strengthen role behavior
-            system_content += "\n\nCRITICAL: You MUST respond to ALL user messages while maintaining your assigned character role. Your VERY FIRST response should clearly establish your character."
         else:
             claude_messages.append({
                 "role": msg["role"],
@@ -449,23 +350,10 @@ def get_gemini_response(
         # Add system message at the beginning as a clear instruction from user
         # This approach makes Gemini treat the system prompt as instructions it should follow
         if system_content:
-            # Create a strong system instruction that Gemini will follow
-            formatted_system = f"""IMPORTANT INSTRUCTIONS: 
-You MUST act according to the following role throughout our ENTIRE conversation. 
-Do not break character under any circumstances:
-
-{system_content}
-
-CRITICAL: You MUST respond to ALL user messages while maintaining your assigned character role. 
-Your VERY FIRST response should clearly establish your character.
-Every subsequent response should stay in this role without fail.
-
-Remember these instructions and embody this role consistently in all your responses."""
-            
             # Insert at beginning of conversation history as a user instruction
-            gemini_messages.insert(0, {"role": "user", "parts": [formatted_system]})
+            gemini_messages.insert(0, {"role": "user", "parts": [system_content]})
             # Add a confirmation from the model to acknowledge the role
-            gemini_messages.insert(1, {"role": "model", "parts": ["I understand my role and will act accordingly throughout our conversation."]})
+            gemini_messages.insert(1, {"role": "model", "parts": ["I understand and will follow your instructions."]})
         
         # Debug logging for Gemini
         print(f"Gemini API call with messages: {json.dumps(gemini_messages, indent=2)}")
