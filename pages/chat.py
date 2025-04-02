@@ -355,8 +355,9 @@ def show():
     # Chat message container with padding at bottom for fixed input
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
-    # Display the messages in the conversation
-    for message in conversation.messages:
+    # Display the messages in the conversation, sorted by timestamp
+    sorted_messages = sorted(conversation.messages, key=lambda x: x.timestamp)
+    for message in sorted_messages:
         if message.role == "user":
             with st.chat_message("user"):
                 # Check if this was a search command

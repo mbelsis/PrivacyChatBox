@@ -2,6 +2,7 @@ import os
 import uuid
 import tempfile
 import mimetypes
+from datetime import datetime
 from typing import Optional, Tuple, Dict, Any, List
 import streamlit as st
 from database import get_session
@@ -345,7 +346,8 @@ def format_conversation_messages(messages: List) -> List[Dict[str, Any]]:
         messages: List of Message objects
         
     Returns:
-        List of formatted messages with attributes extracted to avoid detached instance errors
+        List of formatted messages with attributes extracted to avoid detached instance errors,
+        sorted by timestamp
     """
     formatted_messages = []
     
@@ -365,5 +367,8 @@ def format_conversation_messages(messages: List) -> List[Dict[str, Any]]:
             # Log the error but continue processing other messages
             print(f"Error formatting message: {e}")
             continue
+    
+    # Sort messages by timestamp
+    formatted_messages.sort(key=lambda x: x["timestamp"] if x["timestamp"] else datetime.min)
     
     return formatted_messages
