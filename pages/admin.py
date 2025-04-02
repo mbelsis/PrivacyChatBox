@@ -359,9 +359,18 @@ AZURE_CLIENT_SECRET: ********
             all_users = []
             
             try:
+                # Get user data as dictionaries to avoid detached instance errors
+                users_data = []
                 with session_scope() as session:
                     if session:
                         all_users = session.query(User).all()
+                        # Convert SQLAlchemy objects to dictionaries to avoid detached instance errors
+                        for user in all_users:
+                            users_data.append({
+                                "id": user.id,
+                                "username": user.username,
+                                "role": user.role
+                            })
                     else:
                         st.error("Unable to connect to database. Please try again later.")
                         return
@@ -369,12 +378,13 @@ AZURE_CLIENT_SECRET: ********
                 st.error(f"Error loading users: {str(e)}")
                 return
             
-            user_filter_options = {f"{user.username} (ID: {user.id})": user.id for user in all_users}
+            # Create filter options using the dictionary data
+            user_filter_options = {f"{user['username']} (ID: {user['id']})": user['id'] for user in users_data}
             user_filter_options["All Users"] = None
             
             selected_user_filter = st.selectbox(
                 "User", 
-                ["All Users"] + [f"{user.username} (ID: {user.id})" for user in all_users],
+                ["All Users"] + [f"{user['username']} (ID: {user['id']})" for user in users_data],
                 key="log_user_filter"
             )
             selected_user_id_filter = user_filter_options[selected_user_filter]
@@ -425,9 +435,9 @@ AZURE_CLIENT_SECRET: ********
             for event in formatted_events:
                 # Get username
                 username = ""
-                for user in all_users:
-                    if user.id == event["id"]:
-                        username = user.username
+                for user in users_data:
+                    if user["id"] == event["id"]:
+                        username = user["username"]
                         break
                 
                 events_data.append({

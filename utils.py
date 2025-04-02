@@ -276,29 +276,48 @@ def format_detection_events(events: List) -> List[Dict[str, Any]]:
         events: List of DetectionEvent objects
         
     Returns:
-        List of formatted events
+        List of formatted events with attributes extracted to avoid detached instance errors
     """
     formatted_events = []
     
     for event in events:
-        # Format timestamp
-        timestamp = event.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Get detection count
-        detected_patterns = event.get_detected_patterns()
-        detection_count = sum(len(matches) for matches in detected_patterns.values())
-        
-        # Format event
-        formatted_event = {
-            "id": event.id,
-            "timestamp": timestamp,
-            "action": event.action,
-            "severity": event.severity,
-            "detection_count": detection_count,
-            "detected_patterns": detected_patterns,
-            "file_names": event.file_names
-        }
-        
-        formatted_events.append(formatted_event)
+        try:
+            # Extract all attributes to prevent detached instance errors
+            # Format timestamp
+            timestamp = event.timestamp.strftime("%Y-%m-%d %H:%M:%S") if event.timestamp else "Unknown"
+            
+            # Get user_id
+            user_id = event.user_id
+            
+            # Get action, severity, and file_names
+            action = event.action if hasattr(event, 'action') else "unknown"
+            severity = event.severity if hasattr(event, 'severity') else "unknown"
+            file_names = event.file_names if hasattr(event, 'file_names') else ""
+            
+            # Get detection count and patterns safely
+            try:
+                detected_patterns = event.get_detected_patterns() if hasattr(event, 'get_detected_patterns') else {}
+            except Exception:
+                # Fallback if get_detected_patterns fails
+                detected_patterns = {}
+                
+            detection_count = sum(len(matches) for matches in detected_patterns.values())
+            
+            # Format event as a dictionary to avoid SQLAlchemy object references
+            formatted_event = {
+                "id": user_id,  # Changed from event.id to user_id
+                "timestamp": timestamp,
+                "action": action,
+                "severity": severity,
+                "detection_count": detection_count,
+                "detected_patterns": detected_patterns,
+                "file_names": file_names
+            }
+            
+            formatted_events.append(formatted_event)
+        except Exception as e:
+            # Log the error but continue processing other events
+            print(f"Error formatting event: {e}")
+            continue
     
     return formatted_events
