@@ -1,9 +1,10 @@
 import streamlit as st
 from style import apply_custom_css
+import os
+import json
 
 # Apply custom CSS to hide default menu
 apply_custom_css()
-import json
 
 # Import custom modules
 from database import get_session
@@ -41,11 +42,12 @@ def show():
         return
     
     # Create tabs for different settings categories
-    ai_tab, privacy_tab, ms_dlp_tab, custom_tab = st.tabs([
+    ai_tab, privacy_tab, ms_dlp_tab, custom_tab, config_tab = st.tabs([
         "AI Models", 
         "Privacy Settings", 
         "Microsoft DLP", 
-        "Custom Patterns"
+        "Custom Patterns",
+        "Environment Config"
     ])
     
     # AI Models tab
@@ -543,6 +545,89 @@ def show():
                 st.success("Custom patterns saved.")
             else:
                 st.error("Failed to save custom patterns.")
+    
+    # Environment Config tab
+    with config_tab:
+        st.subheader("Environment Configuration")
+        
+        # Check if user is admin
+        is_admin = st.session_state.get("role", "") == "admin"
+        
+        if not is_admin:
+            st.warning("Only administrators can view and configure these settings.")
+            st.info("Contact your administrator to update these configuration settings.")
+        else:
+            st.info("""
+            This tab allows administrators to view and configure environment variables needed 
+            for Microsoft DLP and Azure AD integrations. The values you enter here are for
+            information purposes only - you'll need to set these as environment variables
+            in your deployment environment.
+            """)
+            
+            # Microsoft DLP Environment Variables
+            st.subheader("Microsoft DLP Integration Configuration")
+            
+            st.markdown("""
+            ### Required Environment Variables for Microsoft DLP
+            
+            To enable Microsoft DLP integration, set the following environment variables:
+            """)
+            
+            ms_dlp_variables = {
+                "MS_CLIENT_ID": "Microsoft App client ID for DLP integration",
+                "MS_CLIENT_SECRET": "Client secret for the Microsoft app",
+                "MS_TENANT_ID": "Your Microsoft tenant ID",
+                "MS_DLP_ENDPOINT_ID": "The endpoint ID for Microsoft DLP services"
+            }
+            
+            # Display the required environment variables
+            for var_name, description in ms_dlp_variables.items():
+                current_value = os.environ.get(var_name, "")
+                masked_value = "••••••••" if current_value else "(Not set)"
+                
+                st.markdown(f"#### {var_name}")
+                st.markdown(f"*{description}*")
+                st.code(f"{var_name}={masked_value}")
+            
+            # Azure AD Environment Variables
+            st.subheader("Azure AD Integration Configuration")
+            
+            st.markdown("""
+            ### Required Environment Variables for Azure AD
+            
+            To enable Azure AD authentication, set the following environment variables:
+            """)
+            
+            azure_ad_variables = {
+                "AZURE_CLIENT_ID": "Azure AD app client ID",
+                "AZURE_CLIENT_SECRET": "Client secret for the Azure AD app",
+                "AZURE_TENANT_ID": "Your Azure tenant ID",
+                "AZURE_REDIRECT_URI": "The redirect URI for authentication callbacks (e.g., http://localhost:5000/)"
+            }
+            
+            # Display the required environment variables
+            for var_name, description in azure_ad_variables.items():
+                current_value = os.environ.get(var_name, "")
+                masked_value = "••••••••" if current_value else "(Not set)"
+                
+                st.markdown(f"#### {var_name}")
+                st.markdown(f"*{description}*")
+                st.code(f"{var_name}={masked_value}")
+            
+            st.info("""
+            ### How to Set Environment Variables
+            
+            These environment variables should be set in your deployment environment. Do not hardcode these values in the application code for security reasons.
+            
+            **For local development:**
+            - Create a `.env` file in the project root directory
+            - Add these variables in the format: `VARIABLE_NAME=value`
+            - Use the `python-dotenv` package to load them
+            
+            **For production deployment:**
+            - Set these as environment variables in your hosting platform
+            - Many platforms offer secure ways to store and manage secrets
+            """)
 
 # If the file is run directly, show the settings interface
 if __name__ == "__main__" or "show" not in locals():
