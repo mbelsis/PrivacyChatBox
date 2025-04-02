@@ -1,0 +1,71 @@
+qlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column "enable_ms_dlp" of relation "settings" does not exist LINE 1: ...e, disable_scan_for_local_model, custom_patterns, enable_ms_... ^ [SQL: INSERT INTO settings (user_id, llm_provider, ai_character, openai_api_key, openai_model, claude_api_key, claude_model, gemini_api_key, gemini_model, serpapi_key, local_model_path, scan_enabled, scan_level, auto_anonymize, disable_scan_for_local_model, custom_patterns, enable_ms_dlp, ms_dlp_sensitivity_threshold, updated_at) VALUES (%(user_id)s, %(llm_provider)s, %(ai_character)s, %(openai_api_key)s, %(openai_model)s, %(claude_api_key)s, %(claude_model)s, %(gemini_api_key)s, %(gemini_model)s, %(serpapi_key)s, %(local_model_path)s, %(scan_enabled)s, %(scan_level)s, %(auto_anonymize)s, %(disable_scan_for_local_model)s, %(custom_patterns)s::JSON, %(enable_ms_dlp)s, %(ms_dlp_sensitivity_threshold)s, now()) RETURNING settings.id, settings.updated_at] [parameters: {'user_id': 2, 'llm_provider': 'openai', 'ai_character': 'assistant', 'openai_api_key': '', 'openai_model': 'gpt-4o', 'claude_api_key': '', 'claude_model': 'claude-3-5-sonnet-20241022', 'gemini_api_key': '', 'gemini_model': 'gemini-pro', 'serpapi_key': '', 'local_model_path': '', 'scan_enabled': True, 'scan_level': 'standard', 'auto_anonymize': True, 'disable_scan_for_local_model': True, 'custom_patterns': '[]', 'enable_ms_dlp': True, 'ms_dlp_sensitivity_threshold': 'confidential'}] (Background on this error at: https://sqlalche.me/e/20/f405)
+Traceback:
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 121, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 639, in code_to_exec
+    _mpa_v1(self._main_script_path)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 159, in _mpa_v1
+    page.run()
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/navigation/page.py", line 297, in run
+    exec(code, module.__dict__)
+File "/home/runner/workspace/pages/admin.py", line 503, in <module>
+    show()
+File "/home/runner/workspace/pages/admin.py", line 185, in show
+    success = create_user(new_username, new_password, role=new_role)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/auth.py", line 132, in create_user
+    session.commit()
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2032, in commit
+    trans.commit(_to_root=True)
+File "<string>", line 2, in commit
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/state_changes.py", line 139, in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 1313, in commit
+    self._prepare_impl()
+File "<string>", line 2, in _prepare_impl
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/state_changes.py", line 139, in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 1288, in _prepare_impl
+    self.session.flush()
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4353, in flush
+    self._flush(objects)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4488, in _flush
+    with util.safe_reraise():
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/util/langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4449, in _flush
+    flush_context.execute()
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 466, in execute
+    rec.execute(self)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 642, in execute
+    util.preloaded.orm_persistence.save_obj(
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 93, in save_obj
+    _emit_insert_statements(
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/persistence.py", line 1233, in _emit_insert_statements
+    result = connection.execute(
+             ^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1416, in execute
+    return meth(
+           ^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 523, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1638, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1843, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1983, in _exec_single_context
+    self._handle_dbapi_exception(
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2352, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 945, in do_execute
+    cursor.execute(statement, parameters)
+Ask Google
+Ask ChatGPT

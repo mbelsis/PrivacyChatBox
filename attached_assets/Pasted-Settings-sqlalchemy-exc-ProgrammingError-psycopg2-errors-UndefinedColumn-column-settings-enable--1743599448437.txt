@@ -1,0 +1,54 @@
+Settings
+sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column settings.enable_ms_dlp does not exist LINE 1: ...ings.custom_patterns AS settings_custom_patterns, settings.e... ^ [SQL: SELECT settings.id AS settings_id, settings.user_id AS settings_user_id, settings.llm_provider AS settings_llm_provider, settings.ai_character AS settings_ai_character, settings.openai_api_key AS settings_openai_api_key, settings.openai_model AS settings_openai_model, settings.claude_api_key AS settings_claude_api_key, settings.claude_model AS settings_claude_model, settings.gemini_api_key AS settings_gemini_api_key, settings.gemini_model AS settings_gemini_model, settings.serpapi_key AS settings_serpapi_key, settings.local_model_path AS settings_local_model_path, settings.scan_enabled AS settings_scan_enabled, settings.scan_level AS settings_scan_level, settings.auto_anonymize AS settings_auto_anonymize, settings.disable_scan_for_local_model AS settings_disable_scan_for_local_model, settings.custom_patterns AS settings_custom_patterns, settings.enable_ms_dlp AS settings_enable_ms_dlp, settings.ms_dlp_sensitivity_threshold AS settings_ms_dlp_sensitivity_threshold, settings.updated_at AS settings_updated_at FROM settings WHERE settings.user_id = %(user_id_1)s LIMIT %(param_1)s] [parameters: {'user_id_1': 1, 'param_1': 1}] (Background on this error at: https://sqlalche.me/e/20/f405)
+Traceback:
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 121, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 639, in code_to_exec
+    _mpa_v1(self._main_script_path)
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 159, in _mpa_v1
+    page.run()
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/navigation/page.py", line 297, in run
+    exec(code, module.__dict__)
+File "/home/runner/workspace/pages/settings.py", line 554, in <module>
+    show()
+File "/home/runner/workspace/pages/settings.py", line 36, in show
+    settings = session.query(Settings).filter(Settings.user_id == user_id).first()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2858, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1416, in execute
+    return meth(
+           ^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 523, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1638, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1843, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1983, in _exec_single_context
+    self._handle_dbapi_exception(
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2352, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 945, in do_execute
+    cursor.execute(statement, parameters)
+Ask Google
+Ask ChatGPT
