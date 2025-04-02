@@ -4,7 +4,11 @@
 
 ## Overview
 
-PrivacyChatBoX is a comprehensive Python-based AI privacy protection platform that provides an intuitive and engaging approach to safeguarding sensitive information across multiple document types and providers. This application offers a privacy-focused environment for AI interactions with multiple model integrations while ensuring user data remains secure.
+PrivacyChatBoX is a comprehensive Python-based AI privacy protection platform that provides an intuitive and engaging approach to safeguarding sensitive information across multiple document types and providers. 
+
+This application offers a privacy-focused environment for AI interactions with multiple model integrations while ensuring user data remains secure.
+
+This application is still work in progress
 
 ## Key Features
 
@@ -21,6 +25,9 @@ PrivacyChatBoX is a comprehensive Python-based AI privacy protection platform th
 - **Analytics**: Comprehensive privacy metrics and visualization
 - **PDF Export**: Export conversations to well-formatted PDF documents
 - **Web Search**: Integrated web search capabilities through SerpAPI
+- **Docker Deployment**: Containerized deployment for easy installation and scaling
+
+> **Security Notice**: In the current version, the database is not encrypted. While administrators cannot access conversation content through the user interface, the data is stored in plaintext in the database. Database encryption is planned for future versions to enhance security (see Future Development section).
 
 ## Architecture
 
@@ -326,6 +333,48 @@ The application includes auto-migration checks that will attempt to detect and a
    - Problem: Conversations not displaying correctly or errors when accessing message properties
    - Solution: The application uses a robust message formatting function that handles both model objects and dictionaries.
                Make sure to use the format_conversation_messages function when working with conversation data.
+
+## Future Development
+
+The following features and improvements are planned for future versions of PrivacyChatBoX:
+
+1. **Database Encryption**: Currently, the database stores data in plaintext. Future versions will implement end-to-end encryption for sensitive data in the database to enhance security.
+
+2. **Chat Interface Optimization**: Improve the chat interface performance and responsiveness, including faster message rendering and reduced latency for long conversations.
+
+3. **Multi-modal AI Support**: Expand capabilities to handle image, audio, and video inputs/outputs with privacy-preserving processing for all media types.
+
+4. **Advanced RAG Implementation**: Add Retrieval-Augmented Generation capabilities with local vector databases for organizational knowledge bases, with privacy-aware embedding generation.
+
+5. **Federated Learning Integration**: Implement privacy-preserving model fine-tuning using federated learning techniques to improve AI responses without compromising user data.
+
+6. **Enterprise SSO Integration**: Expand authentication options to support additional enterprise SSO providers beyond Azure AD, including Okta, Auth0, and Google Workspace.
+
+7. **Compliance Reporting**: Implement automated compliance reporting for privacy regulations like GDPR, HIPAA, and CCPA with audit trails for all AI interactions.
+
+## Application Screenshots
+
+Here are some screenshots showing the various interfaces of the PrivacyChatBoX application:
+
+### Login and Main Screen
+![Main Screen](attached_assets/MainScreen.png)
+*The welcome screen with login form and key features overview*
+
+### Chat Interface with Anonymization
+![Chat Interface](attached_assets/Anonymisation.png)
+*The chat interface showing privacy protection in action with anonymized phone number*
+
+### Settings Panel
+![Settings Panel](attached_assets/Settings.png)
+*AI model configuration settings with API key management*
+
+### Custom Privacy Patterns
+![Privacy Patterns](attached_assets/Privacy-Patterns.png)
+*Custom regex pattern configuration for privacy scanning*
+
+### Conversation History with Privacy Alerts
+![Conversation History](attached_assets/Chat-History.png)
+*Conversation history with privacy alert indicators*
 
 ## License
 
