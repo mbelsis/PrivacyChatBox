@@ -25,6 +25,7 @@ from models import User, Settings, DetectionEvent, Conversation, Message, File
 from privacy_scanner import scan_text, anonymize_text
 from ai_providers import get_ai_response, get_available_models
 from utils import save_uploaded_file
+import azure_auth
 
 # Initialize the database
 init_db()
@@ -47,6 +48,10 @@ if "dark_mode" not in st.session_state:
 
 # Initialize authentication
 init_auth()
+
+# Initialize Azure AD authentication and check URL parameters
+azure_auth.init_azure_auth()
+azure_auth.check_azure_auth_params()
 
 # Define function to toggle dark mode
 def toggle_dark_mode():
@@ -188,6 +193,11 @@ with st.sidebar:
                         st.rerun()
                     else:
                         st.error("Invalid username or password")
+                
+                # Add Azure AD login button
+                st.markdown("---")
+                st.write("Or sign in with:")
+                azure_auth.show_azure_login_button()
         
         with register_tab:
             register_container = st.container()

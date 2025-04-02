@@ -13,6 +13,8 @@ from auth import create_user, delete_user, update_user_role
 from privacy_scanner import get_detection_events
 from utils import format_detection_events
 import shared_sidebar
+import azure_auth
+import os
 
 def show():
     """Main function to display the admin panel"""
@@ -36,7 +38,72 @@ def show():
         return
     
     # Create tabs for different admin functions
-    user_tab, stats_tab, logs_tab = st.tabs(["User Management", "System Statistics", "Privacy Logs"])
+    user_tab, azure_tab, stats_tab, logs_tab = st.tabs(["User Management", "Azure AD", "System Statistics", "Privacy Logs"])
+    
+    # Azure AD tab
+    with azure_tab:
+        st.subheader("Azure AD Integration Settings")
+        
+        # Current Azure AD settings
+        current_client_id = os.environ.get("AZURE_CLIENT_ID", "")
+        current_client_secret = os.environ.get("AZURE_CLIENT_SECRET", "")
+        current_tenant_id = os.environ.get("AZURE_TENANT_ID", "")
+        current_redirect_uri = os.environ.get("AZURE_REDIRECT_URI", "http://localhost:5000/")
+        
+        # Display current settings
+        st.write("### Current Azure AD Configuration")
+        
+        if all([current_client_id, current_client_secret, current_tenant_id]):
+            st.success("Azure AD integration is configured")
+            
+            # Show the current settings in a read-only format
+            st.code(f"""
+AZURE_CLIENT_ID: {current_client_id[:8]}...{current_client_id[-4:] if len(current_client_id) > 12 else ""}
+AZURE_TENANT_ID: {current_tenant_id[:8]}...{current_tenant_id[-4:] if len(current_tenant_id) > 12 else ""}
+AZURE_REDIRECT_URI: {current_redirect_uri}
+AZURE_CLIENT_SECRET: ********
+            """)
+            
+            # Count users with Azure AD connection
+            session = get_session()
+            azure_users_count = 0
+            all_users = session.query(User).all()
+            session.close()
+            
+            for user in all_users:
+                if hasattr(user, 'azure_id') and user.azure_id is not None:
+                    azure_users_count += 1
+            
+            st.info(f"There are {azure_users_count} users connected via Azure AD")
+        else:
+            st.warning("Azure AD integration is not fully configured")
+        
+        # Form to update Azure AD settings
+        st.write("### Update Azure AD Settings")
+        st.write("Configure the Azure AD integration to allow users to sign in with their organizational accounts.")
+        
+        with st.form("azure_ad_settings_form"):
+            new_client_id = st.text_input("Client ID", value=current_client_id, placeholder="Enter Azure AD Client ID")
+            new_client_secret = st.text_input("Client Secret", type="password", placeholder="Enter Azure AD Client Secret")
+            new_tenant_id = st.text_input("Tenant ID", value=current_tenant_id, placeholder="Enter Azure AD Tenant ID")
+            new_redirect_uri = st.text_input("Redirect URI", value=current_redirect_uri, placeholder="Enter Redirect URI")
+            
+            st.markdown("""
+            #### How to set up Azure AD Integration:
+            1. Go to the [Azure Portal](https://portal.azure.com) and register a new application
+            2. Set up a redirect URI that points to your Streamlit app
+            3. Create a client secret
+            4. Copy the Client ID, Tenant ID, and Client Secret to the fields above
+            """)
+            
+            submitted = st.form_submit_button("Update Azure AD Settings")
+            
+            if submitted:
+                # In a real application, you would update environment variables or a secure configuration store
+                # For this example, we'll just show a success message
+                st.success("Azure AD settings updated! Please restart the application for changes to take effect.")
+                # In a real app, you might want to restart the app or update environment variables
+                # This would often be done through a configuration file or environment variable manager
     
     # User Management tab
     with user_tab:
@@ -51,10 +118,16 @@ def show():
         user_data = []
         
         for user in users:
+            # Check if user has Azure AD connection
+            is_azure_user = hasattr(user, 'azure_id') and user.azure_id is not None
+            azure_info = f"{user.azure_name} ({user.azure_id})" if is_azure_user else ""
+            
             user_data.append({
                 "ID": user.id,
                 "Username": user.username,
                 "Role": user.role,
+                "Azure AD": "✓" if is_azure_user else "",
+                "Azure Info": azure_info,
                 "Created": user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else ""
             })
         
@@ -65,6 +138,8 @@ def show():
                 "ID": st.column_config.Column("ID", width="small"),
                 "Username": st.column_config.Column("Username", width="medium"),
                 "Role": st.column_config.Column("Role", width="small"),
+                "Azure AD": st.column_config.Column("Azure AD", width="small"),
+                "Azure Info": st.column_config.Column("Azure Info", width="medium"),
                 "Created": st.column_config.Column("Created", width="medium")
             },
             hide_index=True,

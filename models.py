@@ -14,6 +14,10 @@ class User(Base):
     role = Column(String, default="user")  # "admin" or "user"
     created_at = Column(DateTime, default=func.now())
     
+    # Azure AD integration fields
+    azure_id = Column(String, unique=True, index=True, nullable=True)
+    azure_name = Column(String, nullable=True)
+    
     # Relationships
     settings = relationship("Settings", back_populates="user", uselist=False, cascade="all, delete-orphan")
     detection_events = relationship("DetectionEvent", back_populates="user", cascade="all, delete-orphan")

@@ -544,6 +544,9 @@ def show_system_stats():
         message_count = session.query(func.count(Message.id)).scalar() or 0
         detection_count = session.query(func.count(DetectionEvent.id)).scalar() or 0
         
+        # Azure AD statistics
+        azure_users_count = session.query(func.count(User.id)).filter(User.azure_id != None).scalar() or 0
+        
         # Get some database stats
         total_storage = session.query(
             func.sum(func.length(cast(Message.content, String)))
@@ -579,6 +582,42 @@ def show_system_stats():
         st.metric("Storage Used", f"{total_storage_mb:.2f} MB")
     with col3:
         st.metric("Avg Message Length", f"{avg_message_length:.0f} chars")
+    
+    # Azure AD statistics
+    st.subheader("Authentication Stats")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Total Users", user_count)
+    
+    with col2:
+        st.metric("Azure AD Users", azure_users_count)
+        
+    with col3:
+        azure_percentage = (azure_users_count / user_count * 100) if user_count > 0 else 0
+        st.metric("Azure AD %", f"{azure_percentage:.1f}%")
+    
+    # Add a pie chart for Azure AD vs regular users
+    if user_count > 0:
+        auth_data = pd.DataFrame([
+            {"Auth Type": "Azure AD", "Count": azure_users_count},
+            {"Auth Type": "Regular", "Count": user_count - azure_users_count}
+        ])
+        
+        fig = px.pie(
+            auth_data, 
+            values='Count', 
+            names='Auth Type',
+            color='Auth Type',
+            color_discrete_map={'Azure AD': '#0078d4', 'Regular': '#00b294'},
+            hole=0.4
+        )
+        fig.update_layout(
+            title='Authentication Method Distribution',
+            height=300
+        )
+        st.plotly_chart(fig, use_container_width=True)
     
     # System uptime and activity period
     st.subheader("System Activity")

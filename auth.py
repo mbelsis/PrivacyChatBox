@@ -5,9 +5,16 @@ from datetime import datetime, timedelta
 from database import get_session
 from models import User, Settings
 from sqlalchemy.exc import IntegrityError
+import azure_auth
 
 def init_auth():
     """Initialize authentication system"""
+    # Initialize Azure AD authentication
+    azure_auth.init_azure_auth()
+    
+    # Check if we have Azure authentication in the URL
+    azure_auth.check_azure_auth_params()
+    
     # Create admin user if it doesn't exist
     session = get_session()
     admin_exists = session.query(User).filter(User.username == "admin").first()
