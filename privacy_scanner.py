@@ -177,9 +177,9 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
     """
     sensitive_found, detected = scan_text(user_id, text)
     
-    # If no sensitive information found or auto-anonymize is disabled, return original text
+    # If no sensitive information found, return original text
     settings = get_user_settings(user_id)
-    if not sensitive_found or not settings or not settings.auto_anonymize:
+    if not sensitive_found or not settings:
         return text, detected
     
     # Anonymize each detected pattern

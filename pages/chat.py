@@ -419,8 +419,11 @@ def show():
     with chat_container:
         # Process message if one exists
         if user_message:
-            # Display user message
-            with st.chat_message("user"):
+            # Create a placeholder for the user message that will be replaced if anonymized
+            user_message_container = st.container()
+            
+            # Display user message (this may be replaced later if anonymized)
+            with user_message_container.chat_message("user"):
                 st.write(user_message)
                 
                 # Display files if they exist
@@ -457,37 +460,76 @@ def show():
                     # Reset file pointer for later use
                     file.seek(0)
         
-            # If sensitive information found, show warning and options
+            # If sensitive information found, either show warning or auto-anonymize
             final_message = user_message
             if has_sensitive and settings.scan_enabled:
-                st.warning("🚨 Sensitive information detected in your message or files!")
-                
-                # Show detected patterns
-                st.write("Detected patterns:")
-                for pattern_type, matches in detected.items():
-                    st.write(f"- **{pattern_type}**: {', '.join(matches[:3])}" + 
-                            (f" and {len(matches) - 3} more" if len(matches) > 3 else ""))
-                
-                # Ask user what to do
-                st.info("How would you like to proceed?")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if st.button("Continue with original text"):
-                        pass  # Use original message
-                
-                with col2:
-                    if st.button("Anonymize sensitive information"):
-                        # Anonymize message
-                        final_message, _ = anonymize_text(user_id, user_message)
+                # Check if auto-anonymize is enabled in settings
+                if settings.auto_anonymize:
+                    # Automatically anonymize the message
+                    final_message, _ = anonymize_text(user_id, user_message)
+                    
+                    # Anonymize file contents if any
+                    for i, file_data in enumerate(file_contents):
+                        anonymized_content, _ = anonymize_text(user_id, file_data["content"])
+                        file_contents[i]["content"] = anonymized_content
+                    
+                    # Clear the original user message and display the anonymized version
+                    user_message_container.empty()
+                    
+                    # Display anonymized message in the same position
+                    with user_message_container.chat_message("user"):
+                        st.write("Original message has been anonymized automatically:")
+                        st.markdown(f"**Anonymized message:** {final_message}")
                         
-                        # Anonymize file contents if any
-                        for i, file_data in enumerate(file_contents):
-                            anonymized_content, _ = anonymize_text(user_id, file_data["content"])
-                            file_contents[i]["content"] = anonymized_content
-                        
-                        st.success("Message and files anonymized.")
+                        # Display files if they exist
+                        if uploaded_files:
+                            for file in uploaded_files:
+                                st.caption(f"File: {file.name} (anonymized)")
+                    
+                    st.success("Message and files automatically anonymized (based on your settings)")
+                else:
+                    # Manual choice mode
+                    st.warning("🚨 Sensitive information detected in your message or files!")
+                    
+                    # Show detected patterns
+                    st.write("Detected patterns:")
+                    for pattern_type, matches in detected.items():
+                        st.write(f"- **{pattern_type}**: {', '.join(matches[:3])}" + 
+                                (f" and {len(matches) - 3} more" if len(matches) > 3 else ""))
+                    
+                    # Ask user what to do
+                    st.info("How would you like to proceed?")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("Continue with original text"):
+                            pass  # Use original message
+                    
+                    with col2:
+                        if st.button("Anonymize sensitive information"):
+                            # Anonymize message
+                            final_message, _ = anonymize_text(user_id, user_message)
+                            
+                            # Anonymize file contents if any
+                            for i, file_data in enumerate(file_contents):
+                                anonymized_content, _ = anonymize_text(user_id, file_data["content"])
+                                file_contents[i]["content"] = anonymized_content
+                            
+                            # Clear the original user message and display the anonymized version instead
+                            user_message_container.empty()  # Clear the previous message container
+                            
+                            # Display anonymized message in the same position
+                            with user_message_container.chat_message("user"):
+                                st.write("Original message has been anonymized:")
+                                st.markdown(f"**Anonymized message:** {final_message}")
+                                
+                                # Display files if they exist
+                                if uploaded_files:
+                                    for file in uploaded_files:
+                                        st.caption(f"File: {file.name} (anonymized)")
+                            
+                            st.success("Message and files anonymized.")
             
             # Add message to database
             message_id = add_message_to_conversation(
