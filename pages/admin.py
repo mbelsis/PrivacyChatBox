@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 
 # Import custom modules
-from database import get_session
+from database import get_session, session_scope
 from models import User, Settings, DetectionEvent, Conversation
 from auth import create_user, delete_user, update_user_role
 from privacy_scanner import get_detection_events
@@ -109,13 +109,20 @@ AZURE_CLIENT_SECRET: ********
     with user_tab:
         st.subheader("User Management")
         
-        # Get all users
-        session = get_session()
-        users = session.query(User).all()
-        session.close()
-        
-        # Create a dataframe from users
+        # Get all users with error handling and retry
+        users = []
         user_data = []
+        
+        try:
+            with session_scope() as session:
+                if session:
+                    users = session.query(User).all()
+                else:
+                    st.error("Unable to connect to database. Please try again later.")
+                    return
+        except Exception as e:
+            st.error(f"Error loading users: {str(e)}")
+            return
         
         for user in users:
             # Check if user has Azure AD connection
@@ -176,10 +183,17 @@ AZURE_CLIENT_SECRET: ********
         selected_user_display = st.selectbox("Select User", list(user_options.keys()), key="modify_user")
         selected_user_id = user_options[selected_user_display]
         
-        # Get current role
-        session = get_session()
-        selected_user = session.query(User).filter(User.id == selected_user_id).first()
-        session.close()
+        # Get current role with error handling
+        selected_user = None
+        
+        try:
+            with session_scope() as session:
+                if session:
+                    selected_user = session.query(User).filter(User.id == selected_user_id).first()
+                else:
+                    st.error("Unable to connect to database. Please try again later.")
+        except Exception as e:
+            st.error(f"Error retrieving user: {str(e)}")
         
         if selected_user:
             current_role = selected_user.role
@@ -235,30 +249,39 @@ AZURE_CLIENT_SECRET: ********
     with stats_tab:
         st.subheader("System Statistics")
         
-        # Get system statistics
-        session = get_session()
-        
-        total_users = session.query(User).count()
-        total_conversations = session.query(Conversation).count()
-        total_detection_events = session.query(DetectionEvent).count()
-        
-        # Get user with most conversations
+        # Get system statistics with error handling
         from sqlalchemy import func
         
-        most_conversations_query = session.query(
-            User.username,
-            User.id,
-            func.count(Conversation.id).label('count')
-        ).join(Conversation, User.id == Conversation.user_id, isouter=True)\
-         .group_by(User.id)\
-         .order_by(func.count(Conversation.id).desc())\
-         .first()
+        total_users = 0
+        total_conversations = 0
+        total_detection_events = 0
+        most_conversations_query = None
+        latest_event = None
         
-        # Get latest detection event
-        latest_event = session.query(DetectionEvent).order_by(DetectionEvent.timestamp.desc()).first()
-        
-        # Close session
-        session.close()
+        try:
+            with session_scope() as session:
+                if session:
+                    # Collect all statistics in a single session
+                    total_users = session.query(User).count()
+                    total_conversations = session.query(Conversation).count()
+                    total_detection_events = session.query(DetectionEvent).count()
+                    
+                    # Get user with most conversations
+                    most_conversations_query = session.query(
+                        User.username,
+                        User.id,
+                        func.count(Conversation.id).label('count')
+                    ).join(Conversation, User.id == Conversation.user_id, isouter=True)\
+                     .group_by(User.id)\
+                     .order_by(func.count(Conversation.id).desc())\
+                     .first()
+                    
+                    # Get latest detection event
+                    latest_event = session.query(DetectionEvent).order_by(DetectionEvent.timestamp.desc()).first()
+                else:
+                    st.error("Unable to connect to database. Please try again later.")
+        except Exception as e:
+            st.error(f"Error loading statistics: {str(e)}")
         
         # Display statistics in columns
         col1, col2, col3 = st.columns(3)
@@ -297,10 +320,19 @@ AZURE_CLIENT_SECRET: ********
         col1, col2 = st.columns(2)
         
         with col1:
-            # Get all users for filter
-            session = get_session()
-            all_users = session.query(User).all()
-            session.close()
+            # Get all users for filter with error handling
+            all_users = []
+            
+            try:
+                with session_scope() as session:
+                    if session:
+                        all_users = session.query(User).all()
+                    else:
+                        st.error("Unable to connect to database. Please try again later.")
+                        return
+            except Exception as e:
+                st.error(f"Error loading users: {str(e)}")
+                return
             
             user_filter_options = {f"{user.username} (ID: {user.id})": user.id for user in all_users}
             user_filter_options["All Users"] = None
@@ -319,25 +351,31 @@ AZURE_CLIENT_SECRET: ********
                 key="log_action_filter"
             )
         
-        # Get detection events based on filters
-        session = get_session()
+        # Get detection events based on filters with error handling
+        events = []
         
-        query = session.query(DetectionEvent)
-        
-        if selected_user_id_filter is not None:
-            query = query.filter(DetectionEvent.user_id == selected_user_id_filter)
-        
-        if action_filter != "All":
-            query = query.filter(DetectionEvent.action == action_filter)
-        
-        # Order by timestamp
-        query = query.order_by(DetectionEvent.timestamp.desc())
-        
-        # Limit results
-        events = query.limit(100).all()
-        
-        # Close session
-        session.close()
+        try:
+            with session_scope() as session:
+                if session:
+                    query = session.query(DetectionEvent)
+                    
+                    if selected_user_id_filter is not None:
+                        query = query.filter(DetectionEvent.user_id == selected_user_id_filter)
+                    
+                    if action_filter != "All":
+                        query = query.filter(DetectionEvent.action == action_filter)
+                    
+                    # Order by timestamp
+                    query = query.order_by(DetectionEvent.timestamp.desc())
+                    
+                    # Limit results
+                    events = query.limit(100).all()
+                else:
+                    st.error("Unable to connect to database. Please try again later.")
+                    return
+        except Exception as e:
+            st.error(f"Error loading detection events: {str(e)}")
+            return
         
         # Format events for display
         formatted_events = format_detection_events(events)
