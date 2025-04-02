@@ -44,7 +44,12 @@ class Settings(Base):
     gemini_model = Column(String, default="gemini-1.5-pro")
     
     serpapi_key = Column(String, default="")
+    
+    # Local LLM settings
     local_model_path = Column(String, default="")
+    local_model_context_size = Column(Integer, default=2048)
+    local_model_gpu_layers = Column(Integer, default=-1)  # -1 means use all available
+    local_model_temperature = Column(Float, default=0.7)
     
     # Privacy settings
     scan_enabled = Column(Boolean, default=True)

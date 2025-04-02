@@ -22,6 +22,22 @@ def get_user_settings(user_id: int) -> Optional[Settings]:
 
 def get_available_models() -> Dict[str, List[str]]:
     """Get list of available models for each provider"""
+    # Get available local models
+    local_models = []
+    try:
+        import os
+        models_dir = os.path.join(os.getcwd(), "models")
+        if os.path.exists(models_dir):
+            for filename in os.listdir(models_dir):
+                if filename.endswith(".gguf"):
+                    local_models.append(filename)
+    except Exception as e:
+        print(f"Error listing local models: {str(e)}")
+    
+    # If no local models found, add a placeholder
+    if not local_models:
+        local_models = ["Please download a model first"]
+    
     return {
         "openai": [
             "gpt-4o", 
@@ -39,9 +55,7 @@ def get_available_models() -> Dict[str, List[str]]:
             "gemini-1.5-pro",
             "gemini-1.5-flash"
         ],
-        "local": [
-            "Please specify path in settings"
-        ]
+        "local": local_models
     }
 
 def create_system_prompt(ai_character: str) -> str:
@@ -143,7 +157,8 @@ def get_ai_response(
     messages: List[Dict[str, str]], 
     stream: bool = True,
     override_model: Optional[str] = None,
-    override_provider: Optional[str] = None
+    override_provider: Optional[str] = None,
+    bypass_privacy_scan: bool = False
 ) -> Union[str, Generator[str, None, None]]:
     """
     Get a response from the configured AI model
@@ -154,6 +169,7 @@ def get_ai_response(
         stream: Whether to stream the response
         override_model: Optional model name to override the one in settings
         override_provider: Optional provider name to override the one in settings
+        bypass_privacy_scan: Whether to bypass privacy scanning for this request
         
     Returns:
         Either a string response or a generator that yields chunks of the response
@@ -182,9 +198,32 @@ def get_ai_response(
         elif settings_copy.llm_provider == "gemini":
             settings_copy.gemini_model = override_model
     
-    # Route to appropriate provider
+    # Automatically bypass privacy scanning for local models if configured
     provider = settings_copy.llm_provider
+    if provider == "local" and settings_copy.disable_scan_for_local_model:
+        bypass_privacy_scan = True
+        print("Privacy scanning bypassed for local model as per user settings")
     
+    # Check if we need to apply privacy scanning to the messages
+    if not bypass_privacy_scan and len(messages) > 0:
+        from privacy_scanner import scan_text, anonymize_text
+        
+        # Only scan user messages
+        for i, message in enumerate(messages):
+            if message["role"] == "user":
+                # Check if we should anonymize or just scan
+                if settings_copy.auto_anonymize:
+                    anonymized_text, detected_patterns = anonymize_text(user_id, message["content"])
+                    if detected_patterns:
+                        print(f"Anonymized sensitive content in message: {detected_patterns}")
+                        messages[i]["content"] = anonymized_text
+                else:
+                    # Just scan for logging purposes
+                    has_sensitive, detected_patterns = scan_text(user_id, message["content"])
+                    if has_sensitive:
+                        print(f"Sensitive content detected in message: {detected_patterns}")
+    
+    # Route to appropriate provider
     if provider == "openai":
         return get_openai_response(settings_copy, messages, stream)
     elif provider == "claude":
@@ -399,14 +438,89 @@ def get_local_response(
     settings: Settings, 
     messages: List[Dict[str, str]], 
     stream: bool = True
-) -> str:
-    """Get response from local LLM"""
-    # This function would connect to a locally hosted model
-    # Since we don't have direct access to a local LLM in this environment,
-    # we'll return a message indicating this functionality needs to be configured
+) -> Union[str, Generator[str, None, None]]:
+    """Get response from local LLM using llama-cpp-python"""
+    import os
+    from llama_cpp import Llama
+    
+    # Get model path from settings
     model_path = settings.local_model_path
     
     if not model_path:
         return "Error: Local model path not configured in settings"
     
-    return "Local model support requires additional configuration. Please check the documentation for setting up local LLM integration."
+    if not os.path.exists(model_path):
+        return f"Error: Local model file not found at {model_path}"
+    
+    try:
+        # Initialize local model with settings from the user's configuration
+        model = Llama(
+            model_path=model_path,
+            n_ctx=settings.local_model_context_size or 2048,  # Context length
+            n_gpu_layers=settings.local_model_gpu_layers or -1,  # GPU layers, -1 for all
+            verbose=False  # Set to True for debugging
+        )
+        
+        # Format messages into a prompt for the local model
+        prompt = ""
+        system_message = None
+        
+        # Extract system message if present
+        for msg in messages:
+            if msg["role"] == "system":
+                system_message = msg["content"]
+                break
+        
+        # Add system message at the beginning if present
+        if system_message:
+            prompt += f"SYSTEM: {system_message}\n\n"
+        
+        # Add conversation history
+        for msg in messages:
+            if msg["role"] != "system":  # Skip system message as we've already added it
+                role = "USER" if msg["role"] == "user" else "ASSISTANT"
+                prompt += f"{role}: {msg['content']}\n"
+        
+        # Add final prompt for response
+        prompt += "ASSISTANT: "
+        
+        # Log the prompt for debugging
+        print(f"Local LLM prompt:\n{prompt}")
+        
+        if stream:
+            def response_generator():
+                # Generate tokens in streaming mode
+                response = ""
+                for output in model.generate(
+                    prompt,
+                    max_tokens=1024,
+                    stop=["USER:", "\nUSER", "SYSTEM:"],
+                    temperature=settings.local_model_temperature or 0.7,
+                    stream=True
+                ):
+                    chunk = output["choices"][0]["text"]
+                    response += chunk
+                    yield chunk
+                
+                # Log the complete response for debugging
+                print(f"Complete local LLM response: {response}")
+            
+            return response_generator()
+        else:
+            # Generate complete response at once
+            response = model.generate(
+                prompt,
+                max_tokens=1024,
+                stop=["USER:", "\nUSER", "SYSTEM:"],
+                temperature=settings.local_model_temperature or 0.7
+            )
+            
+            result = response["choices"][0]["text"]
+            print(f"Complete local LLM response: {result}")
+            return result
+    
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error using local LLM: {error_details}")
+        return f"Error using local LLM: {str(e)}"

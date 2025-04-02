@@ -190,11 +190,67 @@ def show():
         elif selected_provider == "local":
             st.subheader("Local Model Settings")
             
+            # Information about local model support
+            st.info("""
+            Local Model support allows you to use your own language models stored on this server.
+            
+            **Supported formats:**
+            - GGUF format models (e.g., models downloaded from HuggingFace)
+            
+            **Recommended models:**
+            - Llama-2-7b-chat.gguf
+            - Mistral-7B-Instruct-v0.2.gguf
+            - Phi-2.gguf  
+            - Any other GGUF format model
+            
+            **Note:** The model file must be accessible from this server. For large models,
+            ensure there is enough RAM and CPU/GPU resources available.
+            """)
+            
             local_model_path = st.text_input(
                 "Local Model Path", 
                 value=settings.local_model_path,
-                help="Path to your local model or API endpoint"
+                help="Full path to your local GGUF model file"
             )
+            
+            # Additional settings
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.checkbox(
+                    "Disable privacy scanning for local model",
+                    value=settings.disable_scan_for_local_model,
+                    help="When enabled, privacy scanning is bypassed for queries to local models",
+                    key="disable_scan_local"
+                )
+            
+            with col2:
+                st.checkbox(
+                    "Auto-download model if not found",
+                    value=False,
+                    disabled=True,  # Placeholder for future functionality
+                    help="Coming soon: Auto-download recommended models if not found",
+                    key="auto_download"
+                )
+            
+            # Help information for getting models
+            with st.expander("How to get local models"):
+                st.markdown("""
+                ### Getting Started with Local Models
+                
+                1. **Download a GGUF model** from [HuggingFace](https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads&search=gguf)
+                
+                2. **Copy the model file to this server** in a directory that's accessible to this application
+                
+                3. **Enter the full path to the model file** in the "Local Model Path" field above
+                
+                Popular models:
+                - [Llama-2-7B-Chat-GGUF](https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF)
+                - [Mistral-7B-Instruct-v0.2-GGUF](https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF)
+                - [Phi-2-GGUF](https://huggingface.co/TheBloke/phi-2-GGUF)
+                
+                Remember to use the "q4_K_M" or "q5_K_M" quantization levels for a good balance of quality and performance.
+                """)
             
             # Update settings if Save button is clicked
             if st.button("Save Local Model Settings"):
@@ -203,7 +259,8 @@ def show():
                     {
                         "llm_provider": selected_provider,
                         "ai_character": selected_character,
-                        "local_model_path": local_model_path
+                        "local_model_path": local_model_path,
+                        "disable_scan_for_local_model": st.session_state.disable_scan_local
                     }
                 )
                 

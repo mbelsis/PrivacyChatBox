@@ -60,6 +60,9 @@ PrivacyChatBoX/
 ├── requirements.txt        # Python dependencies
 ├── pyproject.toml          # Project metadata
 ├── migration_add_dlp_columns.py  # Database migration script
+├── model_utils.py          # Local LLM model utilities
+├── test_local_llm.py       # Testing script for local LLM integration
+├── models/                 # Directory for local LLM models
 └── docs/                   # Documentation
     ├── Modules.md          # Module documentation
     └── Database.md         # Database documentation
@@ -156,6 +159,33 @@ This application requires various API keys for full functionality:
 - **Claude API Key**: Get from [Anthropic Console](https://console.anthropic.com/account/keys)
 - **Gemini API Key**: Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
 - **SerpAPI Key**: Get from [SerpAPI](https://serpapi.com/)
+
+## Local LLM Integration
+
+PrivacyChatBoX supports running local language models without requiring an internet connection or API keys, which enhances privacy and reduces operational costs.
+
+### Local Model Support
+
+The application supports GGUF format models through the llama-cpp-python library. Popular models include:
+
+- **Llama 2**: Meta's Llama 2 models in various sizes
+- **Mistral**: Mistral AI's efficient models
+- **Phi-2**: Microsoft's compact but capable models
+- **Any GGUF format model**: Compatible with the llama-cpp-python library
+
+### Model Manager
+
+The Model Manager page provides a user-friendly interface for:
+
+- Downloading pre-configured models directly within the application
+- Customizing model parameters like context length and temperature
+- Testing models before deploying them in the chat interface
+
+### Privacy Features with Local Models
+
+- **Offline Operation**: Process all requests entirely on your own hardware
+- **Bypass Privacy Scanning**: Option to disable privacy scanning for local models (since data never leaves your system)
+- **Hardware Acceleration**: GPU acceleration support for faster inference
 
 ## License
 
