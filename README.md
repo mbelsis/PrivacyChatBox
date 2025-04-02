@@ -65,7 +65,11 @@ PrivacyChatBoX/
 ├── models/                 # Directory for local LLM models
 └── docs/                   # Documentation
     ├── Modules.md          # Module documentation
-    └── Database.md         # Database documentation
+    ├── Database.md         # Database documentation
+    ├── Setup_Guide.md      # Detailed setup instructions
+    ├── Troubleshooting.md  # Solutions for common issues
+    ├── ConversationData.md # Conversation data formatting guide
+    └── LocalLLM.md         # Local LLM integration guide
 ```
 
 ## Setup and Installation
@@ -73,10 +77,43 @@ PrivacyChatBoX/
 ### Prerequisites
 
 - Python 3.11 or higher
-- PostgreSQL database
-- API keys for desired AI providers (OpenAI, Claude, Gemini)
+- PostgreSQL database (recommended)
+- API keys for desired AI providers (OpenAI, Claude, Gemini) - optional
 
-### Installation
+### Automated Setup (Recommended)
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/PrivacyChatBoX.git
+   cd PrivacyChatBoX
+   ```
+
+2. Run the setup script:
+   ```bash
+   ./setup.sh
+   ```
+   
+   This script will:
+   - Create a Python virtual environment
+   - Install required dependencies
+   - Set up the PostgreSQL database
+   - Create necessary directories
+   - Configure environment variables
+   - Run database migrations
+
+3. Start the application:
+   ```bash
+   source venv/bin/activate
+   streamlit run app.py
+   ```
+
+4. Access the application at `http://localhost:5000`
+
+For detailed setup instructions, troubleshooting, and manual setup options, see [Setup Guide](docs/Setup_Guide.md).
+
+### Manual Installation
+
+If you prefer a manual setup:
 
 1. Clone the repository:
    ```bash
@@ -86,7 +123,7 @@ PrivacyChatBoX/
 
 2. Install dependencies:
    ```bash
-   pip install -r requirements.txt
+   pip install .
    ```
 
 3. Configure environment variables by creating a `.env` file:
@@ -119,17 +156,26 @@ PrivacyChatBoX/
    MS_DLP_ENDPOINT_ID=your_ms_dlp_endpoint_id
    ```
 
-4. Run database migrations:
+4. Create Streamlit configuration:
    ```bash
-   python migration_add_dlp_columns.py
+   mkdir -p .streamlit
+   echo "[server]" > .streamlit/config.toml
+   echo "headless = true" >> .streamlit/config.toml
+   echo "address = \"0.0.0.0\"" >> .streamlit/config.toml
+   echo "port = 5000" >> .streamlit/config.toml
    ```
 
-5. Start the application:
+5. Run database migrations:
+   ```bash
+   python database_check.py
+   ```
+
+6. Start the application:
    ```bash
    streamlit run app.py
    ```
 
-6. Access the application at `http://localhost:5000`
+7. Access the application at `http://localhost:5000`
 
 ### Initial Setup
 
