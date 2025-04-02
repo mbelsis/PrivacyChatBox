@@ -24,7 +24,7 @@ def show():
     shared_sidebar.create_sidebar("history_page")
     
     # Page settings
-    st.title("📜 Conversation History")
+    st.title("📜 Conversation History & Analytics")
     
     # Get user information
     user_id = st.session_state.user_id
@@ -32,21 +32,161 @@ def show():
         st.error("You must be logged in to access this page.")
         return
     
-    # Get all user conversations
-    session = get_session()
-    conversations = session.query(Conversation).filter(
-        Conversation.user_id == user_id
-    ).order_by(Conversation.updated_at.desc()).all()
+    # Create tabs for History and Analytics
+    history_tab, analytics_tab = st.tabs(["📜 History", "📊 Analytics"])
     
-    # Close session
-    session.close()
+    with history_tab:
+        # Get all user conversations
+        session = get_session()
+        conversations = session.query(Conversation).filter(
+            Conversation.user_id == user_id
+        ).order_by(Conversation.updated_at.desc()).all()
+        
+        # Close session
+        session.close()
+        
+        if not conversations:
+            st.info("You don't have any conversations yet. Start chatting to create one!")
+        else:
+            # Display conversations in a table
+            st.subheader("Your Conversations")
     
-    if not conversations:
-        st.info("You don't have any conversations yet. Start chatting to create one!")
-        return
-    
-    # Display conversations in a table
-    st.subheader("Your Conversations")
+    with analytics_tab:
+        st.subheader("Your Usage Analytics")
+        
+        # Load user-specific analytics data
+        from models import Message, DetectionEvent, User
+        from sqlalchemy.sql import func
+        from privacy_scanner import get_detection_events
+        import plotly.express as px
+        from datetime import datetime, timedelta
+        
+        # Initialize analytics metrics
+        total_conversations = 0
+        total_messages = 0
+        total_detection_events = 0
+        detection_by_severity = {"low": 0, "medium": 0, "high": 0}
+        conversations_by_date = {}
+        
+        try:
+            # Get detection events for this user
+            detection_events = get_detection_events(user_id)
+            formatted_events = []
+            
+            # Calculate metrics with error handling
+            with get_session() as session:
+                if session:
+                    # Count conversations
+                    total_conversations = session.query(Conversation).filter(
+                        Conversation.user_id == user_id
+                    ).count()
+                    
+                    # Count messages
+                    total_messages = session.query(Message).join(
+                        Conversation, Message.conversation_id == Conversation.id
+                    ).filter(Conversation.user_id == user_id).count()
+                    
+                    # Count detection events
+                    total_detection_events = session.query(DetectionEvent).filter(
+                        DetectionEvent.user_id == user_id
+                    ).count()
+                    
+                    # Get severity breakdown - safely handle different cases
+                    severity_counts = session.query(
+                        DetectionEvent.severity, 
+                        func.count(DetectionEvent.id)
+                    ).filter(
+                        DetectionEvent.user_id == user_id
+                    ).group_by(DetectionEvent.severity).all()
+                    
+                    # Convert to dictionary format safely
+                    for severity, count in severity_counts:
+                        if severity in detection_by_severity:
+                            detection_by_severity[severity] = count
+                    
+                    # Get counts by date for the past 30 days
+                    thirty_days_ago = datetime.now() - timedelta(days=30)
+                    conversations_by_date_query = session.query(
+                        func.date(Conversation.created_at),
+                        func.count(Conversation.id)
+                    ).filter(
+                        Conversation.user_id == user_id,
+                        Conversation.created_at >= thirty_days_ago
+                    ).group_by(func.date(Conversation.created_at)).all()
+                    
+                    # Create date dictionary with all days in the past 30 days
+                    for i in range(30):
+                        date_key = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                        conversations_by_date[date_key] = 0
+                    
+                    # Fill in actual counts
+                    for date_str, count in conversations_by_date_query:
+                        if isinstance(date_str, str):
+                            date_key = date_str
+                        else:
+                            date_key = date_str.strftime('%Y-%m-%d')
+                        conversations_by_date[date_key] = count
+        except Exception as e:
+            st.error(f"Error loading analytics data: {str(e)}")
+        
+        # Display metrics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Conversations", total_conversations)
+        
+        with col2:
+            st.metric("Total Messages", total_messages)
+        
+        with col3:
+            st.metric("Privacy Events", total_detection_events)
+        
+        # Create data for charts
+        st.subheader("Privacy Detection by Severity")
+        severity_df = pd.DataFrame({
+            "Severity": list(detection_by_severity.keys()),
+            "Count": list(detection_by_severity.values())
+        })
+        
+        if severity_df["Count"].sum() > 0:
+            # Create severity chart
+            fig = px.pie(
+                severity_df, 
+                values="Count", 
+                names="Severity", 
+                color="Severity",
+                color_discrete_map={
+                    "low": "#66BB6A",  # Green
+                    "medium": "#FFA726",  # Orange
+                    "high": "#EF5350"  # Red
+                },
+                hole=0.4
+            )
+            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No privacy detection events recorded yet.")
+        
+        # Activity over time chart
+        st.subheader("Conversation Activity (Past 30 Days)")
+        activity_df = pd.DataFrame({
+            "Date": list(conversations_by_date.keys()),
+            "Conversations": list(conversations_by_date.values())
+        })
+        activity_df["Date"] = pd.to_datetime(activity_df["Date"])
+        activity_df = activity_df.sort_values("Date")
+        
+        if activity_df["Conversations"].sum() > 0:
+            activity_fig = px.line(
+                activity_df, 
+                x="Date", 
+                y="Conversations",
+                markers=True,
+            )
+            activity_fig.update_layout(margin=dict(t=20, b=20, l=20, r=20))
+            st.plotly_chart(activity_fig, use_container_width=True)
+        else:
+            st.info("No conversation activity in the past 30 days.")
     
     # Create a dataframe from the conversations
     conversation_data = []

@@ -14,8 +14,8 @@ def create_sidebar(page_name=""):
     sidebar_key = f"sidebar_created_{page_name}_{st.session_state.get('username', 'guest')}"
     st.session_state[sidebar_key] = True
     with st.sidebar:
-        st.image("https://img.icons8.com/fluency/96/privacy.png", width=60)
-        st.title("PrivacyChatBoX")
+        st.image("assets/logo.png", width=120)
+        # Title already included in the logo
         
         if st.session_state.authenticated:
             st.caption(f"Welcome, **{st.session_state.username}** ({st.session_state.role})")

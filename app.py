@@ -3,7 +3,7 @@ import streamlit as st
 # Set up page configuration - must be the first Streamlit command
 st.set_page_config(
     page_title="PrivacyChatBoX",
-    page_icon="🔒",
+    page_icon="assets/logo.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -75,8 +75,7 @@ with st.sidebar:
         # Add a nice logo/icon at the top
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.image("https://img.icons8.com/fluency/96/privacy.png", width=80)
-            st.title("PrivacyChatBoX")
+            st.image("assets/logo.png", width=150)
             st.caption("Secure AI Assistant with Privacy Protection")
             
         # Create fancy tabs with icons
