@@ -335,3 +335,35 @@ def format_detection_events(events: List) -> List[Dict[str, Any]]:
             continue
     
     return formatted_events
+
+
+def format_conversation_messages(messages: List) -> List[Dict[str, Any]]:
+    """
+    Format conversation messages for AI processing
+    
+    Args:
+        messages: List of Message objects
+        
+    Returns:
+        List of formatted messages with attributes extracted to avoid detached instance errors
+    """
+    formatted_messages = []
+    
+    for message in messages:
+        try:
+            # Extract all attributes to prevent detached instance errors
+            message_dict = {
+                "id": getattr(message, 'id', 0),
+                "conversation_id": getattr(message, 'conversation_id', 0),
+                "role": getattr(message, 'role', "user"),
+                "content": getattr(message, 'content', ""),
+                "timestamp": getattr(message, 'timestamp', None)
+            }
+            
+            formatted_messages.append(message_dict)
+        except Exception as e:
+            # Log the error but continue processing other messages
+            print(f"Error formatting message: {e}")
+            continue
+    
+    return formatted_messages

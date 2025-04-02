@@ -19,7 +19,8 @@ from utils import (
     create_new_conversation, 
     get_conversation, 
     add_message_to_conversation,
-    save_uploaded_file
+    save_uploaded_file,
+    format_conversation_messages
 )
 # Import shared sidebar
 import shared_sidebar
@@ -610,6 +611,9 @@ def show():
             # Use the system prompt as-is without additional instructions
             ai_messages = [{"role": "system", "content": system_prompt}]
             
+            # Add the current user message to the messages list
+            ai_messages.append({"role": "user", "content": final_message})
+            
             # If character has changed, send a notification message
             if character_changed:
                 # Add a character change notification
@@ -623,14 +627,20 @@ def show():
                 })
             
             # Add conversation history (limit to avoid token limits, but ensure the system message stays)
-            # Only include the most recent 10 messages from the conversation
-            history_messages = conversation.messages[-10:] if len(conversation.messages) > 10 else conversation.messages
-            
-            for message in history_messages:
-                # Skip system messages that might be in the conversation history
-                # because we already added a system message at the beginning
-                if message.role != "system":
-                    ai_messages.append({"role": message.role, "content": message.content})
+            # Format history messages to avoid SQLAlchemy detached instance errors
+            if len(conversation.messages) > 0:
+                # Get messages excluding the current message if any
+                history_messages = conversation.messages[:-1][-10:] if len(conversation.messages) > 10 else conversation.messages[:-1]
+                
+                # Format messages to avoid detached instance errors
+                formatted_messages = format_conversation_messages(history_messages)
+                
+                # Add messages to the AI messages list
+                for message_dict in formatted_messages:
+                    # Skip system messages that might be in the conversation history
+                    # because we already added a system message at the beginning
+                    if message_dict["role"] != "system":
+                        ai_messages.append({"role": message_dict["role"], "content": message_dict["content"]})
             
             # Modify the last user message to include file context and search results if any
             # And reinforce the AI character role for each user message
