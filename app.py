@@ -33,18 +33,25 @@ init_db()
 # Initialize session state variables if they don't exist
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+    print("Initialized authenticated state to False")
 if "username" not in st.session_state:
     st.session_state.username = None
+    print("Initialized username state to None")
 if "user_id" not in st.session_state:
     st.session_state.user_id = None
+    print("Initialized user_id state to None")
 if "role" not in st.session_state:
     st.session_state.role = None
+    print("Initialized role state to None")
 if "current_conversation_id" not in st.session_state:
     st.session_state.current_conversation_id = None
+    print("Initialized current_conversation_id state to None")
 if "conversations" not in st.session_state:
     st.session_state.conversations = []
+    print("Initialized conversations state to empty list")
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
+    print("Initialized dark_mode state to False")
 
 # Initialize authentication
 init_auth()
@@ -182,15 +189,19 @@ with st.sidebar:
                 )
                 
                 if login_button:
+                    print(f"Login attempt for username: {login_username}")
                     success, user_id, role = authenticate(login_username, login_password)
                     if success:
+                        print(f"Login successful. Setting session state for user {login_username} with ID {user_id}")
                         st.session_state.authenticated = True
                         st.session_state.username = login_username
                         st.session_state.user_id = user_id
                         st.session_state.role = role
+                        print(f"Session state after login: {st.session_state}")
                         st.success(f"Welcome back, {login_username}!")
                         st.rerun()
                     else:
+                        print(f"Login failed for user: {login_username}")
                         st.error("Invalid username or password")
                 
                 # Add Azure AD login button
@@ -231,16 +242,21 @@ with st.sidebar:
                 )
                 
                 if register_button:
+                    print(f"Registration attempt for username: {reg_username}")
                     if not reg_username or not reg_password:
+                        print("Registration failed: Empty username or password")
                         st.error("Username and password are required")
                     elif reg_password != reg_password_confirm:
+                        print("Registration failed: Passwords do not match")
                         st.error("Passwords do not match")
                     else:
                         success = create_user(reg_username, reg_password, role="user")
                         if success:
+                            print(f"Registration successful for user: {reg_username}")
                             st.success("Registration successful! You can now login.")
                         else:
-                            st.error("Username already exists")
+                            print(f"Registration failed: Username {reg_username} already exists or another error occurred")
+                            st.error("Username already exists or an error occurred during registration")
     
     # The shared sidebar is already created earlier, no need to create it again
     else:

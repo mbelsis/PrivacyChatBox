@@ -68,13 +68,19 @@ def init_auth():
 def authenticate(username, password):
     """Authenticate a user"""
     if not username or not password:
+        print(f"Authentication failed: Empty username or password")
         return False, None, None
     
     try:
         with session_scope() as session:
             user = session.query(User).filter(User.username == username).first()
             
-            if user and user.password == hash_password(password):
+            if not user:
+                print(f"Authentication failed: User '{username}' not found")
+                return False, None, None
+                
+            hashed_password = hash_password(password)
+            if user.password == hashed_password:
                 # Store user info in session state
                 st.session_state.user_info = {
                     "user_id": user.id,
@@ -83,7 +89,12 @@ def authenticate(username, password):
                     "exp": (datetime.utcnow() + timedelta(days=30)).isoformat()
                 }
                 
+                print(f"Authentication successful for user: {username}")
                 return True, user.id, user.role
+            else:
+                print(f"Authentication failed: Password mismatch for user '{username}'")
+                print(f"Expected: {user.password}")
+                print(f"Received: {hashed_password}")
     except Exception as e:
         print(f"Authentication error: {str(e)}")
     
