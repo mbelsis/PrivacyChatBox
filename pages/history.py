@@ -431,6 +431,24 @@ def show():
         users = {user.id: user.username for user in session.query(User).all()}
         session.close()
     
+    # Check for privacy alerts in conversations
+    # First, get all detection events to find which conversations have privacy issues
+    detection_events = get_detection_events(user_id if not is_admin else None, limit=1000)
+    
+    # Create a quick lookup dictionary to check if a message/conversation has associated privacy events
+    # We'll assume a privacy event is associated with a conversation 
+    # if it happened around the same time as the conversation was updated
+    privacy_alerts = {}
+    for event in detection_events:
+        event_user_id = event.get('user_id')
+        event_timestamp = event.get('timestamp')
+        
+        # For each user, store their detection events timestamps
+        if event_user_id not in privacy_alerts:
+            privacy_alerts[event_user_id] = []
+        
+        privacy_alerts[event_user_id].append(event_timestamp)
+    
     for conv in conversations:
         # Initialize message counters safely
         try:
@@ -455,12 +473,28 @@ def show():
         created_date = conv.created_at.strftime("%Y-%m-%d %H:%M")
         updated_date = conv.updated_at.strftime("%Y-%m-%d %H:%M")
         
+        # Check if this conversation has privacy alerts
+        has_privacy_alert = False
+        if conv.user_id in privacy_alerts:
+            # Check if any privacy event happened around the time of conversation updates
+            # Using a 15-minute window (rough estimation)
+            time_window = 15 * 60  # 15 minutes in seconds
+            conv_timestamp = conv.updated_at.timestamp()
+            
+            for event_time in privacy_alerts[conv.user_id]:
+                event_timestamp = event_time.timestamp()
+                # If event happened within time_window of conversation update
+                if abs(event_timestamp - conv_timestamp) < time_window:
+                    has_privacy_alert = True
+                    break
+        
         # Create conversation data dict
         conv_data = {
             "ID": conv.id,
             "Title": conv.title,
             "Created": created_date,
             "Last Updated": updated_date,
+            "Privacy Alert": "⚠️" if has_privacy_alert else "",
             "Messages": message_count,
             "User Msgs": user_messages,
             "AI Msgs": ai_messages
@@ -483,6 +517,7 @@ def show():
         "Title": st.column_config.Column("Title", width="medium"),
         "Created": st.column_config.Column("Created", width="medium"),
         "Last Updated": st.column_config.Column("Last Updated", width="medium"),
+        "Privacy Alert": st.column_config.Column("Privacy Alert", width="small", help="⚠️ indicates privacy concerns detected in this conversation"),
         "Messages": st.column_config.Column("Messages", width="small"),
         "User Msgs": st.column_config.Column("User Msgs", width="small"),
         "AI Msgs": st.column_config.Column("AI Msgs", width="small")
@@ -576,6 +611,22 @@ def show():
                 # Get a fresh conversation with eagerly loaded messages and files
                 fresh_conversation = get_conversation(selected_id)
                 
+                # Check if this conversation has privacy alerts
+                has_privacy_alert = False
+                if selected_conversation.user_id in privacy_alerts:
+                    time_window = 15 * 60  # 15 minutes in seconds
+                    conv_timestamp = selected_conversation.updated_at.timestamp()
+                    
+                    for event_time in privacy_alerts[selected_conversation.user_id]:
+                        event_timestamp = event_time.timestamp()
+                        if abs(event_timestamp - conv_timestamp) < time_window:
+                            has_privacy_alert = True
+                            break
+                
+                # Display privacy alert if detected
+                if has_privacy_alert:
+                    st.warning("⚠️ Privacy Alert: This conversation contains messages with potentially sensitive information that triggered privacy scanning alerts.")
+                
                 if fresh_conversation and hasattr(fresh_conversation, 'messages') and fresh_conversation.messages:
                     # Display messages (limited to 5 for preview)
                     message_limit = 5
@@ -626,6 +677,18 @@ def show():
                         Message.files.any()
                     ).first() is not None
                     
+                    # Check if this conversation has privacy alerts
+                    has_privacy_alert = False
+                    if selected_conversation.user_id in privacy_alerts:
+                        time_window = 15 * 60  # 15 minutes in seconds
+                        conv_timestamp = selected_conversation.updated_at.timestamp()
+                        
+                        for event_time in privacy_alerts[selected_conversation.user_id]:
+                            event_timestamp = event_time.timestamp()
+                            if abs(event_timestamp - conv_timestamp) < time_window:
+                                has_privacy_alert = True
+                                break
+                    
                     # Get detailed stats about the conversation
                     user_message_count = session.query(Message).filter(
                         Message.conversation_id == selected_id,
@@ -656,6 +719,10 @@ def show():
                     # Show additional information about file attachments
                     if message_with_files:
                         st.write("**Files:** This conversation contains file attachments")
+                    
+                    # Show privacy alert if detected
+                    if has_privacy_alert:
+                        st.warning("⚠️ **Privacy Alert:** This conversation contains messages with potentially sensitive information that triggered privacy scanning alerts.")
                     
                     # Admin actions for other users' conversations - limited to delete only
                     if st.button("Delete Conversation (Admin Action)", key="admin_delete_btn"):
