@@ -290,26 +290,27 @@ def update_user_settings(user_id: int, settings_data: Dict[str, Any]) -> bool:
     Returns:
         Boolean indicating success
     """
-    session = get_session()
-    
-    # Find user settings
-    settings = session.query(Settings).filter(
-        Settings.user_id == user_id
-    ).first()
-    
-    if not settings:
-        session.close()
+    # Use session_scope context manager to avoid detached instance errors
+    try:
+        with session_scope() as session:
+            # Find user settings
+            settings = session.query(Settings).filter(
+                Settings.user_id == user_id
+            ).first()
+            
+            if not settings:
+                return False
+            
+            # Update settings - only allow updating attributes that exist on the model
+            for key, value in settings_data.items():
+                if hasattr(settings, key):
+                    setattr(settings, key, value)
+                    
+            # session_scope handles commit and close automatically
+            return True
+    except Exception as e:
+        print(f"Error updating user settings: {str(e)}")
         return False
-    
-    # Update settings
-    for key, value in settings_data.items():
-        if hasattr(settings, key):
-            setattr(settings, key, value)
-    
-    session.commit()
-    session.close()
-    
-    return True
 
 def format_detection_events(events: List) -> List[Dict[str, Any]]:
     """

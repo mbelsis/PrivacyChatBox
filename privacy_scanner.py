@@ -4,7 +4,7 @@ import uuid
 from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime
 import streamlit as st
-from database import get_session
+from database import get_session, session_scope
 from models import User, Settings, DetectionEvent
 
 # Define standard regex patterns for sensitive data
@@ -63,10 +63,27 @@ STRICT_PATTERNS = {
 
 def get_user_settings(user_id: int) -> Optional[Settings]:
     """Get user settings for privacy scanning"""
-    session = get_session()
-    settings = session.query(Settings).filter(Settings.user_id == user_id).first()
-    session.close()
-    return settings
+    try:
+        with session_scope() as session:
+            settings = session.query(Settings).filter(Settings.user_id == user_id).first()
+            
+            # If we found settings, create a copy of important attributes to avoid detached instance errors
+            if settings:
+                return Settings(
+                    id=settings.id,
+                    user_id=settings.user_id,
+                    scan_enabled=settings.scan_enabled,
+                    scan_level=settings.scan_level,
+                    auto_anonymize=settings.auto_anonymize,
+                    disable_scan_for_local_model=settings.disable_scan_for_local_model,
+                    custom_patterns=settings.custom_patterns,
+                    enable_ms_dlp=getattr(settings, 'enable_ms_dlp', True),
+                    ms_dlp_sensitivity_threshold=getattr(settings, 'ms_dlp_sensitivity_threshold', 'confidential')
+                )
+            return None
+    except Exception as e:
+        print(f"Error getting user settings: {str(e)}")
+        return None
 
 def scan_text(user_id: int, text: str) -> Tuple[bool, Dict[str, List[str]]]:
     """
@@ -114,18 +131,20 @@ def scan_text(user_id: int, text: str) -> Tuple[bool, Dict[str, List[str]]]:
     
     # Log detection event if sensitive information was found
     if sensitive_found:
-        session = get_session()
-        detection_event = DetectionEvent(
-            user_id=user_id,
-            timestamp=datetime.now(),
-            action="scan",
-            severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-            detected_patterns=detected,
-            file_names=""
-        )
-        session.add(detection_event)
-        session.commit()
-        session.close()
+        try:
+            with session_scope() as session:
+                detection_event = DetectionEvent(
+                    user_id=user_id,
+                    timestamp=datetime.now(),
+                    action="scan",
+                    severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
+                    detected_patterns=detected,
+                    file_names=""
+                )
+                session.add(detection_event)
+                # session_scope handles commit and close
+        except Exception as e:
+            print(f"Error logging detection event: {str(e)}")
     
     return sensitive_found, detected
 
@@ -147,18 +166,20 @@ def scan_file_content(user_id: int, file_content: str, file_name: str) -> Tuple[
     
     # Log detection event if sensitive information was found
     if sensitive_found:
-        session = get_session()
-        detection_event = DetectionEvent(
-            user_id=user_id,
-            timestamp=datetime.now(),
-            action="scan",
-            severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-            detected_patterns=detected,
-            file_names=file_name
-        )
-        session.add(detection_event)
-        session.commit()
-        session.close()
+        try:
+            with session_scope() as session:
+                detection_event = DetectionEvent(
+                    user_id=user_id,
+                    timestamp=datetime.now(),
+                    action="scan",
+                    severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
+                    detected_patterns=detected,
+                    file_names=file_name
+                )
+                session.add(detection_event)
+                # session_scope handles commit and close
+        except Exception as e:
+            print(f"Error logging file detection event: {str(e)}")
     
     return sensitive_found, detected
 
@@ -260,28 +281,62 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
             anonymized_text = anonymized_text.replace(match, replacement)
     
     # Log anonymization event
-    session = get_session()
-    detection_event = DetectionEvent(
-        user_id=user_id,
-        timestamp=datetime.now(),
-        action="anonymize",
-        severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-        detected_patterns=detected,
-        file_names=""
-    )
-    session.add(detection_event)
-    session.commit()
-    session.close()
+    try:
+        with session_scope() as session:
+            detection_event = DetectionEvent(
+                user_id=user_id,
+                timestamp=datetime.now(),
+                action="anonymize",
+                severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
+                detected_patterns=detected,
+                file_names=""
+            )
+            session.add(detection_event)
+            # session_scope handles commit and close
+    except Exception as e:
+        print(f"Error logging anonymization event: {str(e)}")
     
     return anonymized_text, detected
 
-def get_detection_events(user_id: int, limit: int = 50) -> List[DetectionEvent]:
-    """Get recent detection events for a user"""
-    session = get_session()
-    events = session.query(DetectionEvent).filter(
-        DetectionEvent.user_id == user_id
-    ).order_by(
-        DetectionEvent.timestamp.desc()
-    ).limit(limit).all()
-    session.close()
-    return events
+def get_detection_events(user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get recent detection events for a user
+    
+    Args:
+        user_id: ID of the user
+        limit: Maximum number of events to return
+        
+    Returns:
+        List of formatted detection events as dictionaries to avoid detached instance errors
+    """
+    try:
+        with session_scope() as session:
+            events = session.query(DetectionEvent).filter(
+                DetectionEvent.user_id == user_id
+            ).order_by(
+                DetectionEvent.timestamp.desc()
+            ).limit(limit).all()
+            
+            # Format events to avoid detached instance errors
+            formatted_events = []
+            for event in events:
+                try:
+                    # Create a dictionary with all needed attributes
+                    event_dict = {
+                        "id": event.id,
+                        "user_id": event.user_id,
+                        "timestamp": event.timestamp,
+                        "action": event.action,
+                        "severity": event.severity,
+                        "file_names": event.file_names,
+                        "detected_patterns": event.detected_patterns if isinstance(event.detected_patterns, dict) else {}
+                    }
+                    formatted_events.append(event_dict)
+                except Exception as e:
+                    print(f"Error formatting event: {str(e)}")
+                    continue
+                    
+            return formatted_events
+    except Exception as e:
+        print(f"Error getting detection events: {str(e)}")
+        return []

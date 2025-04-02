@@ -4,7 +4,7 @@ import time
 from typing import Dict, Any, Optional, List, Generator, Union
 import streamlit as st
 import requests
-from database import get_session
+from database import get_session, session_scope
 from models import Settings
 
 # Import API clients
@@ -15,10 +15,40 @@ import google.generativeai as genai
 
 def get_user_settings(user_id: int) -> Optional[Settings]:
     """Get user settings from the database"""
-    session = get_session()
-    settings = session.query(Settings).filter(Settings.user_id == user_id).first()
-    session.close()
-    return settings
+    try:
+        with session_scope() as session:
+            settings = session.query(Settings).filter(Settings.user_id == user_id).first()
+            
+            # If we found settings, create a copy of important attributes to avoid detached instance errors
+            if settings:
+                return Settings(
+                    id=settings.id,
+                    user_id=settings.user_id,
+                    llm_provider=settings.llm_provider,
+                    ai_character=settings.ai_character,
+                    openai_api_key=settings.openai_api_key,
+                    openai_model=settings.openai_model,
+                    claude_api_key=settings.claude_api_key,
+                    claude_model=settings.claude_model,
+                    gemini_api_key=settings.gemini_api_key,
+                    gemini_model=settings.gemini_model,
+                    serpapi_key=settings.serpapi_key,
+                    local_model_path=settings.local_model_path,
+                    local_model_context_size=settings.local_model_context_size,
+                    local_model_gpu_layers=settings.local_model_gpu_layers,
+                    local_model_temperature=settings.local_model_temperature,
+                    scan_enabled=settings.scan_enabled,
+                    scan_level=settings.scan_level,
+                    auto_anonymize=settings.auto_anonymize,
+                    disable_scan_for_local_model=settings.disable_scan_for_local_model,
+                    custom_patterns=settings.custom_patterns,
+                    enable_ms_dlp=getattr(settings, 'enable_ms_dlp', True),
+                    ms_dlp_sensitivity_threshold=getattr(settings, 'ms_dlp_sensitivity_threshold', 'confidential')
+                )
+            return None
+    except Exception as e:
+        print(f"Error getting user settings: {str(e)}")
+        return None
 
 def get_available_models() -> Dict[str, List[str]]:
     """Get list of available models for each provider"""
@@ -360,14 +390,14 @@ def get_gemini_response(
         model = available_models[0]
         # Update user's settings in the database
         try:
-            session = get_session()
-            user_settings = session.query(Settings).filter(Settings.gemini_api_key == api_key).first()
-            if user_settings:
-                user_settings.gemini_model = model
-                session.commit()
-            session.close()
-        except Exception:
+            with session_scope() as session:
+                user_settings = session.query(Settings).filter(Settings.gemini_api_key == api_key).first()
+                if user_settings:
+                    user_settings.gemini_model = model
+                    # session_scope handles commit and close
+        except Exception as e:
             # Continue even if we can't update the settings
+            print(f"Error updating Gemini model settings: {str(e)}")
             pass
     
     try:
