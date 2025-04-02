@@ -309,6 +309,9 @@ Remember to maintain your {role_type} perspective throughout the explanation."""
             # If there was no system message, add the enhanced one
             if not any(msg["role"] == "system" for msg in messages):
                 messages.insert(0, {"role": "system", "content": enhanced_system})
+                
+        # Debug logging to show messages before API call
+        print(f"OpenAI API call with messages: {json.dumps(messages, indent=2)}")
         
         # Create completion request with clear parameters
         response = client.chat.completions.create(
@@ -367,6 +370,10 @@ def get_claude_response(
             })
     
     try:
+        # Debug logging
+        print(f"Claude API call with messages: {json.dumps(claude_messages, indent=2)}")
+        print(f"Claude API system content: {system_content}")
+        
         # Create completion request
         response = client.messages.create(
             model=model,
@@ -460,13 +467,19 @@ Remember these instructions and embody this role consistently in all your respon
             # Add a confirmation from the model to acknowledge the role
             gemini_messages.insert(1, {"role": "model", "parts": ["I understand my role and will act accordingly throughout our conversation."]})
         
+        # Debug logging for Gemini
+        print(f"Gemini API call with messages: {json.dumps(gemini_messages, indent=2)}")
+        
         # Create chat session with the enhanced history
         chat = gemini_model.start_chat(history=gemini_messages[:-1] if gemini_messages else [])
         
         # Get response
         if stream:
+            last_message = gemini_messages[-1]["parts"][0] if gemini_messages else "Hello"
+            print(f"Sending message to Gemini: {last_message}")
+            
             response = chat.send_message(
-                gemini_messages[-1]["parts"][0] if gemini_messages else "Hello",
+                last_message,
                 stream=True
             )
             
@@ -477,8 +490,11 @@ Remember these instructions and embody this role consistently in all your respon
             
             return response_generator()
         else:
+            last_message = gemini_messages[-1]["parts"][0] if gemini_messages else "Hello"
+            print(f"Sending message to Gemini: {last_message}")
+            
             response = chat.send_message(
-                gemini_messages[-1]["parts"][0] if gemini_messages else "Hello",
+                last_message,
                 stream=False
             )
             return response.text
