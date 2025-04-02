@@ -41,7 +41,12 @@ def show():
         return
     
     # Create tabs for different settings categories
-    ai_tab, privacy_tab, custom_tab = st.tabs(["AI Models", "Privacy Settings", "Custom Patterns"])
+    ai_tab, privacy_tab, ms_dlp_tab, custom_tab = st.tabs([
+        "AI Models", 
+        "Privacy Settings", 
+        "Microsoft DLP", 
+        "Custom Patterns"
+    ])
     
     # AI Models tab
     with ai_tab:
@@ -317,6 +322,135 @@ def show():
                 st.success("Privacy settings saved.")
             else:
                 st.error("Failed to save settings.")
+    
+    # Microsoft DLP tab
+    with ms_dlp_tab:
+        st.subheader("Microsoft DLP Integration")
+        
+        # Import MS DLP functions
+        try:
+            from ms_dlp import get_ms_settings, is_dlp_integration_enabled
+            ms_dlp_available = True
+        except ImportError:
+            ms_dlp_available = False
+        
+        if not ms_dlp_available:
+            st.warning("Microsoft DLP module is not available or not properly installed.")
+        else:
+            # Check if Microsoft settings are configured
+            ms_settings = get_ms_settings()
+            
+            if not ms_settings.get("is_configured", False):
+                st.warning("""
+                Microsoft DLP integration is not properly configured. 
+                To enable this feature, the following environment variables must be set:
+                - MS_CLIENT_ID
+                - MS_CLIENT_SECRET
+                - MS_TENANT_ID
+                - MS_DLP_ENDPOINT_ID
+                
+                Contact your administrator to configure these settings.
+                """)
+            else:
+                # Show current status
+                is_enabled = is_dlp_integration_enabled(user_id)
+                
+                # Get current user settings
+                with get_session() as session:
+                    settings = session.query(Settings).filter(Settings.user_id == user_id).first()
+                    current_enable_dlp = getattr(settings, "enable_ms_dlp", True)
+                    current_threshold = getattr(settings, "ms_dlp_sensitivity_threshold", "confidential")
+                
+                # Create settings form
+                with st.form("dlp_settings_form"):
+                    st.subheader("Microsoft DLP Settings")
+                    
+                    # Enable/disable switch
+                    enable_dlp = st.toggle("Enable Microsoft DLP Integration", value=current_enable_dlp)
+                    
+                    # Sensitivity threshold selector
+                    sensitivity_options = [
+                        ("general", "General (Public)"),
+                        ("internal", "Internal Only"),
+                        ("confidential", "Confidential"),
+                        ("highly_confidential", "Highly Confidential"),
+                        ("secret", "Secret"),
+                        ("top_secret", "Top Secret")
+                    ]
+                    
+                    sensitivity_labels = [label for _, label in sensitivity_options]
+                    sensitivity_values = [value for value, _ in sensitivity_options]
+                    
+                    current_index = sensitivity_values.index(current_threshold) if current_threshold in sensitivity_values else 2
+                    
+                    st.write("#### Sensitivity Threshold")
+                    st.write("Files with sensitivity labels equal to or above this level will be blocked:")
+                    
+                    threshold = st.select_slider(
+                        "Sensitivity Threshold",
+                        options=sensitivity_labels,
+                        value=sensitivity_labels[current_index]
+                    )
+                    
+                    # Convert display label back to value
+                    selected_index = sensitivity_labels.index(threshold)
+                    threshold_value = sensitivity_values[selected_index]
+                    
+                    # Save button
+                    if st.form_submit_button("Save DLP Settings"):
+                        # Update settings
+                        settings_data = {
+                            "enable_ms_dlp": enable_dlp,
+                            "ms_dlp_sensitivity_threshold": threshold_value
+                        }
+                        
+                        success = update_user_settings(user_id, settings_data)
+                        
+                        if success:
+                            st.success("DLP settings updated successfully.")
+                        else:
+                            st.error("Failed to update DLP settings.")
+                
+                if enable_dlp:
+                    st.success("Microsoft DLP integration is active.")
+                else:
+                    st.warning("Microsoft DLP integration is configured but disabled.")
+                
+                # Information about Microsoft DLP
+                st.info("""
+                ### How Microsoft DLP Integration Works
+                
+                The Microsoft DLP (Data Loss Prevention) integration enhances privacy protection by:
+                
+                1. Scanning uploaded files for Microsoft Sensitivity labels
+                2. Blocking files with sensitivity levels at or above your threshold
+                3. Reporting DLP violations to Microsoft Compliance center
+                4. Logging blocked file events in your detection events history
+                """)
+                
+                # File types supported
+                st.write("#### Supported File Types")
+                supported_types = [
+                    "Office documents (.docx, .xlsx, .pptx)",
+                    "PDF files (.pdf)",
+                    "Text files (.txt, .csv)",
+                    "Email files (.msg, .eml)"
+                ]
+                for file_type in supported_types:
+                    st.markdown(f"- {file_type}")
+                
+                # Future enhancements section
+                with st.expander("Future Enhancements"):
+                    st.write("""
+                    In future updates, this feature will be expanded to include:
+                    
+                    - Custom sensitivity level thresholds
+                    - Per-user DLP configuration
+                    - More granular control over file types and actions
+                    - Integration with additional DLP providers
+                    
+                    Stay tuned for updates!
+                    """)
     
     # Custom Patterns tab
     with custom_tab:

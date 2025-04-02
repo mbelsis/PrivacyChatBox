@@ -65,7 +65,9 @@ def show():
         total_conversations = 0
         total_messages = 0
         total_detection_events = 0
+        total_dlp_blocks = 0
         detection_by_severity = {"low": 0, "medium": 0, "high": 0}
+        detection_by_action = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0}
         conversations_by_date = {}
         
         try:
@@ -104,6 +106,22 @@ def show():
                         if severity in detection_by_severity:
                             detection_by_severity[severity] = count
                     
+                    # Get action type breakdown
+                    action_counts = session.query(
+                        DetectionEvent.action, 
+                        func.count(DetectionEvent.id)
+                    ).filter(
+                        DetectionEvent.user_id == user_id
+                    ).group_by(DetectionEvent.action).all()
+                    
+                    # Convert to dictionary format safely
+                    for action, count in action_counts:
+                        if action in detection_by_action:
+                            detection_by_action[action] = count
+                    
+                    # Count DLP blocks specifically
+                    total_dlp_blocks = detection_by_action.get("block_sensitive_file", 0)
+                    
                     # Get counts by date for the past 30 days
                     thirty_days_ago = datetime.now() - timedelta(days=30)
                     conversations_by_date_query = session.query(
@@ -130,7 +148,7 @@ def show():
             st.error(f"Error loading analytics data: {str(e)}")
         
         # Display metrics
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Total Conversations", total_conversations)
@@ -140,6 +158,9 @@ def show():
         
         with col3:
             st.metric("Privacy Events", total_detection_events)
+            
+        with col4:
+            st.metric("Blocked Sensitive Files", total_dlp_blocks)
         
         # Create data for charts
         st.subheader("Privacy Detection by Severity")
@@ -148,24 +169,63 @@ def show():
             "Count": list(detection_by_severity.values())
         })
         
-        if severity_df["Count"].sum() > 0:
-            # Create severity chart
-            fig = px.pie(
-                severity_df, 
-                values="Count", 
-                names="Severity", 
-                color="Severity",
-                color_discrete_map={
-                    "low": "#66BB6A",  # Green
-                    "medium": "#FFA726",  # Orange
-                    "high": "#EF5350"  # Red
-                },
-                hole=0.4
-            )
-            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No privacy detection events recorded yet.")
+        # Create columns for side-by-side charts
+        chart_col1, chart_col2 = st.columns(2)
+        
+        with chart_col1:
+            if severity_df["Count"].sum() > 0:
+                # Create severity chart
+                fig = px.pie(
+                    severity_df, 
+                    values="Count", 
+                    names="Severity", 
+                    color="Severity",
+                    color_discrete_map={
+                        "low": "#66BB6A",  # Green
+                        "medium": "#FFA726",  # Orange
+                        "high": "#EF5350"  # Red
+                    },
+                    hole=0.4,
+                    title="By Severity"
+                )
+                fig.update_layout(margin=dict(t=30, b=0, l=0, r=0))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No privacy detection events recorded yet.")
+        
+        with chart_col2:
+            # Create action type chart
+            action_df = pd.DataFrame({
+                "Action": [
+                    "Content Scan", 
+                    "Content Anonymization",
+                    "Blocked Sensitive Files"
+                ],
+                "Count": [
+                    detection_by_action.get("scan", 0),
+                    detection_by_action.get("anonymize", 0),
+                    detection_by_action.get("block_sensitive_file", 0)
+                ]
+            })
+            
+            if action_df["Count"].sum() > 0:
+                action_fig = px.pie(
+                    action_df,
+                    values="Count",
+                    names="Action",
+                    color="Action",
+                    color_discrete_map={
+                        "Content Scan": "#42A5F5",  # Blue
+                        "Content Anonymization": "#AB47BC",  # Purple
+                        "Blocked Sensitive Files": "#F44336"  # Red
+                    },
+                    hole=0.4,
+                    title="By Action Type"
+                )
+                action_fig.update_layout(margin=dict(t=30, b=0, l=0, r=0))
+                st.plotly_chart(action_fig, use_container_width=True)
+            else:
+                st.info("No privacy detection events recorded yet.")
         
         # Activity over time chart
         st.subheader("Conversation Activity (Past 30 Days)")

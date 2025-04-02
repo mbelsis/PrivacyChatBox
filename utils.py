@@ -5,8 +5,16 @@ import mimetypes
 from datetime import datetime
 from typing import Optional, Tuple, Dict, Any, List
 import streamlit as st
-from database import get_session
+from database import get_session, session_scope
 from models import Conversation, Message, File, User, Settings
+
+# Import MS DLP functionality for file sensitivity checking
+# This import is done in a try-except to allow the app to work without MS DLP integration
+try:
+    from ms_dlp import scan_file_for_sensitivity, is_dlp_integration_enabled
+    MS_DLP_AVAILABLE = True
+except ImportError:
+    MS_DLP_AVAILABLE = False
 
 def generate_unique_id() -> str:
     """Generate a unique ID for files or conversations"""
@@ -146,7 +154,7 @@ def add_message_to_conversation(
     role: str, 
     content: str,
     uploaded_files: Optional[List] = None
-) -> int:
+) -> Tuple[int, Optional[str]]:
     """
     Add a message to a conversation
     
@@ -157,7 +165,9 @@ def add_message_to_conversation(
         uploaded_files: List of Streamlit uploaded file objects
         
     Returns:
-        ID of the created message
+        Tuple containing:
+            - ID of the created message (0 if creation failed due to blocked files)
+            - Error message if any files were blocked, None otherwise
     """
     session = get_session()
     
@@ -171,11 +181,43 @@ def add_message_to_conversation(
     session.add(message)
     session.commit()
     
+    error_message = None
+    
     # Add files if provided
     if uploaded_files:
+        # Get user ID from conversation for DLP checks
+        user_id = None
+        if MS_DLP_AVAILABLE:
+            conversation = session.query(Conversation).filter(
+                Conversation.id == conversation_id
+            ).first()
+            if conversation:
+                user_id = conversation.user_id
+        
         for uploaded_file in uploaded_files:
             file_path, mime_type, file_size = save_uploaded_file(uploaded_file)
             
+            # Check for Microsoft sensitivity labels if DLP integration is available
+            if MS_DLP_AVAILABLE and user_id and is_dlp_integration_enabled(user_id):
+                file_allowed, dlp_error = scan_file_for_sensitivity(
+                    user_id=user_id,
+                    file_path=file_path,
+                    file_name=uploaded_file.name,
+                    file_mime=mime_type
+                )
+                
+                if not file_allowed:
+                    # File blocked by DLP, return error
+                    session.close()
+                    # Clean up - delete the created message since we're aborting
+                    with session_scope() as cleanup_session:
+                        msg = cleanup_session.query(Message).filter(Message.id == message.id).first()
+                        if msg:
+                            cleanup_session.delete(msg)
+                    
+                    return 0, dlp_error
+            
+            # File is allowed, continue with adding it
             file = File(
                 message_id=message.id,
                 original_name=uploaded_file.name,
@@ -207,7 +249,7 @@ def add_message_to_conversation(
     
     session.close()
     
-    return message_id
+    return message_id, error_message
 
 def delete_conversation(conversation_id: int) -> bool:
     """

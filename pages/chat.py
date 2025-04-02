@@ -534,12 +534,18 @@ def show():
                             st.success("Message and files anonymized.")
             
             # Add message to database
-            message_id = add_message_to_conversation(
+            message_id, dlp_error = add_message_to_conversation(
                 conversation_id=conversation_id,
                 role="user",
                 content=final_message,
                 uploaded_files=uploaded_files
             )
+            
+            # Check if any files were blocked by Microsoft DLP
+            if dlp_error:
+                st.error(f"⚠️ {dlp_error}")
+                # Early return if files were blocked
+                st.stop()
         
             # Prepare context from files if any are uploaded
             file_context = ""
@@ -717,7 +723,7 @@ def show():
                 response_container.markdown(full_response)
             
             # Save the assistant message to the database
-            add_message_to_conversation(
+            message_id, _ = add_message_to_conversation(
                 conversation_id=conversation_id,
                 role="assistant",
                 content=full_response,

@@ -53,6 +53,10 @@ class Settings(Base):
     disable_scan_for_local_model = Column(Boolean, default=True)
     custom_patterns = Column(JSON, default=list)
     
+    # Microsoft DLP integration settings
+    enable_ms_dlp = Column(Boolean, default=True)
+    ms_dlp_sensitivity_threshold = Column(String, default="confidential")  # general, internal, confidential, highly_confidential, secret, top_secret
+    
     # Updated timestamp
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
