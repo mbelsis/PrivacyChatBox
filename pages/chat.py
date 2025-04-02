@@ -604,11 +604,11 @@ def show():
             # Add system message based on selected character
             system_prompt = create_system_prompt(selected_character)
             
-            # Always make system message the first message in the conversation with an explicit instruction
+            # Define role name for later use
             role_name = selected_character.replace("_", " ").title()
-            enhanced_system_prompt = f"{system_prompt}\n\nVERY IMPORTANT: You MUST respond as a {role_name} to ALL user messages. Your first response to this conversation should acknowledge this role explicitly."
             
-            ai_messages = [{"role": "system", "content": enhanced_system_prompt}]
+            # Use the system prompt as-is without additional instructions
+            ai_messages = [{"role": "system", "content": system_prompt}]
             
             # If character has changed, send a notification message
             if character_changed:
@@ -639,9 +639,6 @@ def show():
                     # Get the AI character role name
                     role_name = selected_character.replace("_", " ").title()
                     
-                    # Add a reinforcement prefix to remind the AI of its role
-                    role_prefix = f"[Remember to respond as a {role_name}] "
-                    
                     # Add context if this is the last user message
                     if i == len(ai_messages) - 1 and (file_context or search_results):
                         content = msg["content"]
@@ -649,10 +646,8 @@ def show():
                             content += search_results
                         if file_context:
                             content += file_context
-                        ai_messages[i]["content"] = role_prefix + content
-                    else:
-                        # Just add the role prefix to other user messages
-                        ai_messages[i]["content"] = role_prefix + msg["content"]
+                        ai_messages[i]["content"] = content
+                    # Keep other user messages as-is without modifications
             
             # Get AI response
             with st.chat_message("assistant"):
