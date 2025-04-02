@@ -337,6 +337,25 @@ def show():
         background-color: #ffffff !important;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
     }
+    
+    /* Make sure sidebar is always visible in chat view */
+    section[data-testid="stSidebar"] {
+        display: flex !important;
+        visibility: visible !important;
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 20rem !important;
+        height: 100vh !important;
+        overflow-y: auto !important;
+        z-index: 999 !important;
+    }
+    
+    /* Adjust main content to make room for sidebar */
+    .main .block-container {
+        margin-left: 20rem !important;
+        max-width: calc(100% - 20rem) !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     

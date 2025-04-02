@@ -5,8 +5,8 @@ def apply_custom_css():
     
     st.markdown("""
     <style>
-        /* Hide default menu */
-        section[data-testid="stSidebar"] > div.css-1oe6ov4.e1fqkh3o3 > div.css-1adrfps.e1fqkh3o2 > div.css-1qrvfrg.e1fqkh3o1 {
+        /* Hide only default menu elements, not the entire sidebar */
+        div[data-testid="stSidebarNav"] {
             display: none !important;
         }
         
@@ -21,22 +21,30 @@ def apply_custom_css():
             display: none !important;
         }
         
-        /* Remove top padding from sidebar */
-        section[data-testid="stSidebar"] > div.css-1oe6ov4.e1fqkh3o3 {
+        /* Remove top padding from sidebar but don't hide it */
+        section[data-testid="stSidebar"] > div {
             padding-top: 0.5rem;
         }
         
-        /* Hide default navigation items with fallback selectors */
-        .stApp div[data-testid="stSidebarNav"], 
+        /* Hide default navigation while keeping the sidebar itself visible */
         .stApp ul.css-eczf16,
-        .stApp button[kind="icon"],
-        .stApp [data-testid="collapsedControl"] {
+        .stApp button[kind="icon"] {
             display: none !important;
         }
         
         /* Ensure menu items in sidebar have proper top margin */
         section[data-testid="stSidebar"] div.block-container {
             padding-top: 1rem !important;
+        }
+        
+        /* Make sure sidebar is always visible */
+        section[data-testid="stSidebar"] {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            height: auto !important;
+            width: auto !important;
+            transform: none !important;
         }
     </style>
     """, unsafe_allow_html=True)
