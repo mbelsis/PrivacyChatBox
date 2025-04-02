@@ -304,6 +304,34 @@ To set up a new PostgreSQL database for PrivacyChatBoX:
    python migration_add_local_llm_columns.py
    ```
 
+7. Initial Admin User Creation:
+   When the application runs for the first time, it automatically creates an admin user:
+   - Username: `admin`
+   - Password: `admin`
+   
+   This is handled in the `auth.py` module through the `init_auth()` function, which is called when the application starts:
+   
+   ```python
+   def init_auth():
+       """Initialize authentication system"""
+       with session_scope() as session:
+           # Check if admin user exists
+           admin_user = session.query(User).filter(User.username == "admin").first()
+           if not admin_user:
+               # Create admin user
+               password_hash = hash_password("admin")
+               admin_user = User(username="admin", password=password_hash, role="admin")
+               session.add(admin_user)
+               
+               # Create default settings for admin user
+               settings = Settings(user_id=admin_user.id)
+               session.add(settings)
+               
+               print("Created admin user with default password")
+   ```
+   
+   For security reasons, it's recommended to change the admin password immediately after the first login.
+
 ## Working with the Database
 
 The application uses SQLAlchemy's ORM to interact with the database. Here's an example of how to query and modify data:

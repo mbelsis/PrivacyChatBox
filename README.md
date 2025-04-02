@@ -133,11 +133,13 @@ PrivacyChatBoX/
 
 ### Initial Setup
 
-On first run, an admin user will be created with:
-- Username: `admin`
-- Password: `admin`
+**Important:** On first run, the application automatically creates an admin user:
+- Username: **`admin`**
+- Password: **`admin`**
 
-It's recommended to change this password immediately after first login.
+This default admin account is created by the `init_auth()` function in `auth.py`, which runs during application startup. The admin user has full access to all features, including user management.
+
+⚠️ **Security Warning:** It's strongly recommended to change this password immediately after your first login by going to the Admin panel > User Management.
 
 ## Usage
 
