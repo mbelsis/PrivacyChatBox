@@ -500,7 +500,7 @@ def show():
         use_container_width=True
     )
     
-    # Conversation selection and actions
+    # Conversation actions section - different for admin vs regular users
     st.subheader("Conversation Actions")
     
     # Let user select a conversation
@@ -512,101 +512,174 @@ def show():
     selected_conversation = next((c for c in conversations if c.id == selected_id), None)
     
     if selected_conversation:
-        col1, col2, col3 = st.columns(3)
+        # Check if admin is viewing someone else's conversation
+        is_admin_viewing_others = is_admin and selected_conversation.user_id != user_id
         
-        with col1:
-            if st.button("Open Conversation", key="open_btn"):
-                st.session_state.current_conversation_id = selected_id
-                st.switch_page("pages/chat.py")
-        
-        with col2:
-            if st.button("Export to PDF", key="pdf_btn"):
-                try:
-                    # Generate PDF
-                    with st.spinner("Generating PDF..."):
-                        pdf_path = export_conversation_to_pdf(selected_id)
-                    
-                    # Provide download link
-                    with open(pdf_path, "rb") as pdf_file:
-                        pdf_bytes = pdf_file.read()
-                    
-                    st.download_button(
-                        label="Download PDF",
-                        data=pdf_bytes,
-                        file_name=f"conversation_{selected_id}.pdf",
-                        mime="application/pdf"
-                    )
-                except Exception as e:
-                    st.error(f"Error generating PDF: {str(e)}")
-        
-        with col3:
-            # Delete conversation with confirmation
-            if st.button("Delete Conversation", key="delete_btn"):
-                st.warning(f"Are you sure you want to delete '{selected_conversation.title}'? This action cannot be undone.")
-                
-                confirm_col1, confirm_col2 = st.columns(2)
-                
-                with confirm_col1:
-                    if st.button("Yes, delete it", key="confirm_delete"):
-                        # Delete the conversation
-                        success = delete_conversation(selected_id)
-                        
-                        if success:
-                            st.success("Conversation deleted successfully.")
-                            # Clear current conversation if it was the deleted one
-                            if st.session_state.get("current_conversation_id") == selected_id:
-                                st.session_state.current_conversation_id = None
-                            st.rerun()
-                        else:
-                            st.error("Failed to delete conversation.")
-                
-                with confirm_col2:
-                    if st.button("Cancel", key="cancel_delete"):
-                        st.rerun()
-        
-        # Display conversation preview
-        st.subheader("Conversation Preview")
-        
-        try:
-            # Get a fresh conversation with eagerly loaded messages and files
-            fresh_conversation = get_conversation(selected_id)
+        # For regular users or admins viewing their own conversations
+        if not is_admin_viewing_others:
+            col1, col2, col3 = st.columns(3)
             
-            if fresh_conversation and hasattr(fresh_conversation, 'messages') and fresh_conversation.messages:
-                # Display messages (limited to 5 for preview)
-                message_limit = 5
-                messages_to_show = fresh_conversation.messages[:message_limit]
+            with col1:
+                if st.button("Open Conversation", key="open_btn"):
+                    st.session_state.current_conversation_id = selected_id
+                    st.switch_page("pages/chat.py")
+            
+            with col2:
+                if st.button("Export to PDF", key="pdf_btn"):
+                    try:
+                        # Generate PDF
+                        with st.spinner("Generating PDF..."):
+                            pdf_path = export_conversation_to_pdf(selected_id)
+                        
+                        # Provide download link
+                        with open(pdf_path, "rb") as pdf_file:
+                            pdf_bytes = pdf_file.read()
+                        
+                        st.download_button(
+                            label="Download PDF",
+                            data=pdf_bytes,
+                            file_name=f"conversation_{selected_id}.pdf",
+                            mime="application/pdf"
+                        )
+                    except Exception as e:
+                        st.error(f"Error generating PDF: {str(e)}")
+            
+            with col3:
+                # Delete conversation with confirmation
+                if st.button("Delete Conversation", key="delete_btn"):
+                    st.warning(f"Are you sure you want to delete '{selected_conversation.title}'? This action cannot be undone.")
+                    
+                    confirm_col1, confirm_col2 = st.columns(2)
+                    
+                    with confirm_col1:
+                        if st.button("Yes, delete it", key="confirm_delete"):
+                            # Delete the conversation
+                            success = delete_conversation(selected_id)
+                            
+                            if success:
+                                st.success("Conversation deleted successfully.")
+                                # Clear current conversation if it was the deleted one
+                                if st.session_state.get("current_conversation_id") == selected_id:
+                                    st.session_state.current_conversation_id = None
+                                st.rerun()
+                            else:
+                                st.error("Failed to delete conversation.")
+                    
+                    with confirm_col2:
+                        if st.button("Cancel", key="cancel_delete"):
+                            st.rerun()
+            
+            # Display conversation preview for user's own conversations
+            st.subheader("Conversation Preview")
+            
+            try:
+                # Get a fresh conversation with eagerly loaded messages and files
+                fresh_conversation = get_conversation(selected_id)
                 
-                for msg in messages_to_show:
-                    if msg.role == "user":
-                        with st.chat_message("user"):
-                            # Truncate long messages
-                            content = msg.content
-                            if len(content) > 300:
-                                content = content[:300] + "..."
-                            
-                            st.write(content)
-                            
-                            # Show files if any
-                            if hasattr(msg, 'files') and msg.files:
-                                for file in msg.files:
-                                    st.caption(f"File: {file.original_name}")
-                    else:
-                        with st.chat_message("assistant"):
-                            # Truncate long messages
-                            content = msg.content
-                            if len(content) > 300:
-                                content = content[:300] + "..."
-                            
-                            st.write(content)
-                
-                # Show a message if there are more messages
-                if len(fresh_conversation.messages) > message_limit:
-                    st.info(f"Showing {message_limit} of {len(fresh_conversation.messages)} messages. Open the conversation to see all.")
-            else:
-                st.info("No messages in this conversation. Open it to start chatting.")
-        except Exception as e:
-            st.error(f"Error loading conversation preview: {str(e)}")
-            st.info("Try opening the conversation to view messages.")
+                if fresh_conversation and hasattr(fresh_conversation, 'messages') and fresh_conversation.messages:
+                    # Display messages (limited to 5 for preview)
+                    message_limit = 5
+                    messages_to_show = fresh_conversation.messages[:message_limit]
+                    
+                    for msg in messages_to_show:
+                        if msg.role == "user":
+                            with st.chat_message("user"):
+                                # Truncate long messages
+                                content = msg.content
+                                if len(content) > 300:
+                                    content = content[:300] + "..."
+                                
+                                st.write(content)
+                                
+                                # Show files if any
+                                if hasattr(msg, 'files') and msg.files:
+                                    for file in msg.files:
+                                        st.caption(f"File: {file.original_name}")
+                        else:
+                            with st.chat_message("assistant"):
+                                # Truncate long messages
+                                content = msg.content
+                                if len(content) > 300:
+                                    content = content[:300] + "..."
+                                
+                                st.write(content)
+                    
+                    # Show a message if there are more messages
+                    if len(fresh_conversation.messages) > message_limit:
+                        st.info(f"Showing {message_limit} of {len(fresh_conversation.messages)} messages. Open the conversation to see all.")
+                else:
+                    st.info("No messages in this conversation. Open it to start chatting.")
+            except Exception as e:
+                st.error(f"Error loading conversation preview: {str(e)}")
+                st.info("Try opening the conversation to view messages.")
+        
+        # For admins viewing other users' conversations - privacy-focused view
+        else:
+            st.info("⚠️ Privacy Notice: For data privacy reasons, administrators cannot view the content of users' conversations. Only metadata is available.")
+            
+            # Get privacy events related to this conversation if any
+            try:
+                with get_session() as session:
+                    # Check if this conversation has any messages with files
+                    message_with_files = session.query(Message).filter(
+                        Message.conversation_id == selected_id,
+                        Message.files.any()
+                    ).first() is not None
+                    
+                    # Get detailed stats about the conversation
+                    user_message_count = session.query(Message).filter(
+                        Message.conversation_id == selected_id,
+                        Message.role == "user"
+                    ).count()
+                    
+                    assistant_message_count = session.query(Message).filter(
+                        Message.conversation_id == selected_id,
+                        Message.role == "assistant"
+                    ).count()
+                    
+                    # Get username of conversation owner
+                    username = users.get(selected_conversation.user_id, f"User {selected_conversation.user_id}")
+                    
+                    # Show metadata in organized format
+                    metadata_col1, metadata_col2 = st.columns(2)
+                    
+                    with metadata_col1:
+                        st.write(f"**Title:** {selected_conversation.title}")
+                        st.write(f"**Created:** {selected_conversation.created_at.strftime('%Y-%m-%d %H:%M')}")
+                        st.write(f"**User Messages:** {user_message_count}")
+                        
+                    with metadata_col2:
+                        st.write(f"**Owner:** {username}")
+                        st.write(f"**Last Updated:** {selected_conversation.updated_at.strftime('%Y-%m-%d %H:%M')}")
+                        st.write(f"**AI Messages:** {assistant_message_count}")
+                    
+                    # Show additional information about file attachments
+                    if message_with_files:
+                        st.write("**Files:** This conversation contains file attachments")
+                    
+                    # Admin actions for other users' conversations - limited to delete only
+                    if st.button("Delete Conversation (Admin Action)", key="admin_delete_btn"):
+                        st.warning(f"Are you sure you want to delete this conversation? This action cannot be undone.")
+                        
+                        confirm_col1, confirm_col2 = st.columns(2)
+                        
+                        with confirm_col1:
+                            if st.button("Yes, delete it", key="admin_confirm_delete"):
+                                # Delete the conversation
+                                success = delete_conversation(selected_id)
+                                
+                                if success:
+                                    st.success("Conversation deleted successfully.")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete conversation.")
+                        
+                        with confirm_col2:
+                            if st.button("Cancel", key="admin_cancel_delete"):
+                                st.rerun()
+            
+            except Exception as e:
+                st.error(f"Error loading conversation metadata: {str(e)}")
 
 # If the file is run directly, show the history interface
 if __name__ == "__main__" or "show" not in locals():
