@@ -80,7 +80,12 @@ def create_sidebar(page_name=""):
             
             with theme_col:
                 theme_key = f"theme_toggle_{page_name}"
-                if st.button("🌙 Theme", key=theme_key, help="Toggle dark/light mode"):
+                # Choose icon based on current theme
+                icon = "☀️" if st.session_state.get("dark_mode", False) else "🌙"
+                button_text = f"{icon} Theme"
+                tooltip = "Switch to Light Mode" if st.session_state.get("dark_mode", False) else "Switch to Dark Mode"
+                
+                if st.button(button_text, key=theme_key, help=tooltip):
                     try:
                         # Import toggle_dark_mode function from app.py
                         from app import toggle_dark_mode
