@@ -127,7 +127,7 @@ def show():
     """, unsafe_allow_html=True)
     
     # Title and selector row
-    st.subheader(f"Conversation: {conversation.title}", anchor=False)
+    st.subheader(f"Conversation: {conversation['title']}", anchor=False)
     
     # Create a more compact row for all selectors
     compact_col1, compact_col2, compact_col3 = st.columns([1, 1, 1])
@@ -356,22 +356,23 @@ def show():
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
     # Display the messages in the conversation, sorted by timestamp
-    sorted_messages = sorted(conversation.messages, key=lambda x: x.timestamp)
+    sorted_messages = sorted(conversation["messages"], key=lambda x: x["timestamp"])
     for message in sorted_messages:
-        if message.role == "user":
+        if message["role"] == "user":
             with st.chat_message("user"):
                 # Check if this was a search command
-                if message.content.startswith("/search "):
-                    st.write(f"🔍 **Search Query:** {message.content[8:]}")
+                if message["content"].startswith("/search "):
+                    st.write(f"🔍 **Search Query:** {message['content'][8:]}")
                 else:
-                    st.write(message.content)
+                    st.write(message["content"])
                 
                 # Display files if they exist
-                for file in message.files:
-                    st.caption(f"📎 File: {file.original_name} ({file.mime_type})")
+                if "files" in message:
+                    for file in message["files"]:
+                        st.caption(f"📎 File: {file['original_name']} ({file['mime_type']})")
         else:
             with st.chat_message("assistant"):
-                st.write(message.content)
+                st.write(message["content"])
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -635,9 +636,9 @@ def show():
             
             # Add conversation history (limit to avoid token limits, but ensure the system message stays)
             # Format history messages to avoid SQLAlchemy detached instance errors
-            if len(conversation.messages) > 0:
+            if len(conversation["messages"]) > 0:
                 # Get messages excluding the current message if any
-                history_messages = conversation.messages[:-1][-10:] if len(conversation.messages) > 10 else conversation.messages[:-1]
+                history_messages = conversation["messages"][:-1][-10:] if len(conversation["messages"]) > 10 else conversation["messages"][:-1]
                 
                 # Format messages to avoid detached instance errors
                 formatted_messages = format_conversation_messages(history_messages)

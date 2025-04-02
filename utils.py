@@ -427,7 +427,7 @@ def format_conversation_messages(messages: List) -> List[Dict[str, Any]]:
     Format conversation messages for AI processing
     
     Args:
-        messages: List of Message objects
+        messages: List of Message objects or message dictionaries
         
     Returns:
         List of formatted messages with attributes extracted to avoid detached instance errors,
@@ -437,14 +437,25 @@ def format_conversation_messages(messages: List) -> List[Dict[str, Any]]:
     
     for message in messages:
         try:
-            # Extract all attributes to prevent detached instance errors
-            message_dict = {
-                "id": getattr(message, 'id', 0),
-                "conversation_id": getattr(message, 'conversation_id', 0),
-                "role": getattr(message, 'role', "user"),
-                "content": getattr(message, 'content', ""),
-                "timestamp": getattr(message, 'timestamp', None)
-            }
+            # Check if the message is already a dictionary
+            if isinstance(message, dict):
+                # Message is already a dictionary, use it directly
+                message_dict = {
+                    "id": message.get('id', 0),
+                    "conversation_id": message.get('conversation_id', 0),
+                    "role": message.get('role', "user"),
+                    "content": message.get('content', ""),
+                    "timestamp": message.get('timestamp', None)
+                }
+            else:
+                # Extract all attributes to prevent detached instance errors
+                message_dict = {
+                    "id": getattr(message, 'id', 0),
+                    "conversation_id": getattr(message, 'conversation_id', 0),
+                    "role": getattr(message, 'role', "user"),
+                    "content": getattr(message, 'content', ""),
+                    "timestamp": getattr(message, 'timestamp', None)
+                }
             
             formatted_messages.append(message_dict)
         except Exception as e:
