@@ -11,6 +11,9 @@ PrivacyChatBoX is a comprehensive Python-based AI privacy protection platform th
 - **Multi-Provider AI Integration**: Seamlessly switch between OpenAI, Anthropic Claude, Google Gemini, and local LLM models
 - **Privacy Scanning**: Automatically scans text for sensitive information before sending to AI models
 - **Document Anonymization**: Detects and anonymizes sensitive information in documents
+- **Privacy Alerts**: Visual indicators (⚠️) for conversations with detected sensitive information
+- **Role-Based Access Control**: Admin and regular user roles with appropriate permissions
+- **Privacy-Focused Administration**: Admins can see metadata and privacy alerts but not conversation content
 - **Microsoft DLP Integration**: Blocks sensitive files based on Microsoft Sensitivity labels
 - **Conversation Management**: Save, export, and manage conversation history
 - **Azure AD Authentication**: Enterprise-ready authentication with Microsoft identities
@@ -38,9 +41,11 @@ PrivacyChatBoX/
 │   ├── admin.py            # Admin dashboard
 │   ├── chat.py             # Main chat interface
 │   ├── history.py          # Conversation history and analytics
+│   ├── model_manager.py    # Local LLM model management (admin only)
 │   └── settings.py         # User settings
 ├── models.py               # Database models
 ├── database.py             # Database connection utilities
+├── database_check.py       # Database schema validation
 ├── ai_providers.py         # AI provider integration
 ├── privacy_scanner.py      # Privacy scanning functionality
 ├── ms_dlp.py               # Microsoft DLP integration
@@ -49,7 +54,7 @@ PrivacyChatBoX/
 ├── utils.py                # General utilities
 ├── utils_auth.py           # Authentication utilities
 ├── pdf_export.py           # PDF export functionality
-├── shared_sidebar.py       # Shared UI components
+├── shared_sidebar.py       # Shared UI components (with role-based visibility)
 ├── style.py                # Custom CSS styling
 ├── assets/                 # Static assets
 │   ├── logo.png            # Application logo
@@ -59,9 +64,12 @@ PrivacyChatBoX/
 │   └── config.toml         # Streamlit configuration file
 ├── requirements.txt        # Python dependencies
 ├── pyproject.toml          # Project metadata
-├── migration_add_dlp_columns.py  # Database migration script
+├── migration_add_dlp_columns.py      # Microsoft DLP integration migration
+├── migration_add_local_llm_columns.py # Local LLM settings migration
+├── migration_pattern_levels.py       # Privacy pattern levels migration
 ├── model_utils.py          # Local LLM model utilities
 ├── test_local_llm.py       # Testing script for local LLM integration
+├── setup.sh                # Automated installation script
 ├── models/                 # Directory for local LLM models
 └── docs/                   # Documentation
     ├── Modules.md          # Module documentation
@@ -187,6 +195,26 @@ This default admin account is created by the `init_auth()` function in `auth.py`
 
 ⚠️ **Security Warning:** It's strongly recommended to change this password immediately after your first login by going to the Admin panel > User Management.
 
+## User Roles and Permissions
+
+The application supports two types of user roles with different permissions:
+
+### Regular Users
+- Can access Chat, History, and Settings pages
+- Can only see and manage their own conversations
+- Can configure their own AI provider settings and privacy preferences
+- Cannot access Admin Panel or Model Manager pages
+
+### Administrators
+- Have full access to all pages including Admin Panel and Model Manager
+- Can manage users (create, delete, change roles and passwords)
+- Can view metadata about all users' conversations (titles, timestamps, file attachments, privacy alerts)
+- Can see which conversations contain privacy alerts (⚠️ indicator)
+- **Cannot view the actual content of other users' conversations**, only metadata
+- Can manage system-wide settings and local LLM models
+
+> **Security Note**: At the current stage, the database is not encrypted. While administrators cannot access conversation content through the user interface, the data is stored in plaintext in the database. Future versions will implement database encryption for enhanced security.
+
 ## Usage
 
 1. **Login**: Use the login form or Azure AD login if configured
@@ -194,6 +222,7 @@ This default admin account is created by the `init_auth()` function in `auth.py`
 3. **Settings**: Configure your AI providers, privacy settings, and more
 4. **History**: View your conversation history and analytics
 5. **Admin**: Manage users and view system metrics (admin only)
+6. **Model Manager**: Download and configure local LLM models (admin only)
 
 ## Environment Variables
 
@@ -243,12 +272,14 @@ This application uses several database migration scripts to handle schema update
 
 - **migration_add_dlp_columns.py**: Adds Microsoft DLP integration columns to the Settings table
 - **migration_add_local_llm_columns.py**: Adds local LLM configuration columns to the Settings table
+- **migration_pattern_levels.py**: Adds 'level' attribute to custom patterns in Settings table, enabling categorization of patterns into standard and strict modes
 
 If you encounter database-related errors, especially with missing columns, make sure to run these migration scripts:
 
 ```bash
 python migration_add_dlp_columns.py
 python migration_add_local_llm_columns.py
+python migration_pattern_levels.py
 ```
 
 The application includes auto-migration checks that will attempt to detect and apply necessary migrations when features are accessed.
