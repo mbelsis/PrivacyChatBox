@@ -185,6 +185,31 @@ If you prefer a manual setup:
 
 7. Access the application at `http://localhost:5000`
 
+
+
+### Docker Deployment
+
+The application can be easily deployed using Docker and Docker Compose:
+
+### Quick Docker Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/PrivacyChatBoX.git
+   cd PrivacyChatBoX
+   ```
+
+2. Start the application:
+   ```bash
+   docker-compose up -d
+   ```
+
+3. Access the application at `http://localhost:5000`
+
+For a complete step-by-step guide on Docker deployment, configuration, and troubleshooting, see:
+- [Docker Setup Guide](docs/docker-setup.md) - Comprehensive instructions for Docker deployment
+- [Docker Guide](docs/Docker_Guide.md) - Detailed reference and advanced configurations
+
 ### Initial Setup
 
 **Important:** On first run, the application automatically creates an admin user:
@@ -194,6 +219,7 @@ If you prefer a manual setup:
 This default admin account is created by the `init_auth()` function in `auth.py`, which runs during application startup. The admin user has full access to all features, including user management.
 
 ⚠️ **Security Warning:** It's strongly recommended to change this password immediately after your first login by going to the Admin panel > User Management.
+
 
 ## User Roles and Permissions
 
@@ -224,28 +250,6 @@ The application supports two types of user roles with different permissions:
 5. **Admin**: Manage users and view system metrics (admin only)
 6. **Model Manager**: Download and configure local LLM models (admin only)
 
-## Docker Deployment
-
-The application can be easily deployed using Docker and Docker Compose:
-
-### Quick Docker Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/PrivacyChatBoX.git
-   cd PrivacyChatBoX
-   ```
-
-2. Start the application:
-   ```bash
-   docker-compose up -d
-   ```
-
-3. Access the application at `http://localhost:5000`
-
-For a complete step-by-step guide on Docker deployment, configuration, and troubleshooting, see:
-- [Docker Setup Guide](docs/docker-setup.md) - Comprehensive instructions for Docker deployment
-- [Docker Guide](docs/Docker_Guide.md) - Detailed reference and advanced configurations
 
 ## Environment Variables
 
