@@ -12,32 +12,48 @@ import shared_sidebar
 
 def show():
     """Main function to display the simplified analytics dashboard"""
-    # Create sidebar with shared component
-    shared_sidebar.create_sidebar("analytics_page")
-    
-    st.title("📈 Analytics Dashboard")
-    
-    # Check if user is authenticated and is admin
-    if "authenticated" not in st.session_state or not st.session_state.authenticated:
-        st.error("You must be logged in to access this page.")
-        st.stop()
-    
-    # Check if user is admin
-    if st.session_state.get("role") != "admin":
-        st.error("You must be an admin to access this page.")
-        st.stop()
-    
-    # Display summary statistics
-    get_system_overview()
-    
-    # Display user activity metrics
-    get_user_activity()
-    
-    # Display simple model usage by provider type
-    get_model_usage()
-    
-    # Display privacy metrics
-    get_privacy_metrics()
+    try:
+        # Clear sidebar state to ensure it's recreated
+        if "sidebar_created" in st.session_state:
+            del st.session_state.sidebar_created
+        
+        # Create sidebar with shared component
+        shared_sidebar.create_sidebar("analytics_page")
+        
+        st.title("📈 Analytics Dashboard")
+        
+        # Debugging check for session state
+        st.write("Session State Keys:", list(st.session_state.keys()))
+        
+        # Check if user is authenticated and is admin
+        if "authenticated" not in st.session_state or not st.session_state.authenticated:
+            st.error("You must be logged in to access this page.")
+            return
+        
+        # Check if user is admin
+        if st.session_state.get("role") != "admin":
+            st.error("You must be an admin to access this page.")
+            return
+        
+        # Display just the system overview to start
+        get_system_overview()
+        
+        # Only proceed with the rest if system overview worked
+        try:
+            # Display user activity metrics
+            get_user_activity()
+            
+            # Display simple model usage
+            get_model_usage()
+            
+            # Display privacy metrics
+            get_privacy_metrics()
+        except Exception as e:
+            st.error(f"Error loading analytics components: {str(e)}")
+            st.exception(e)
+    except Exception as e:
+        st.error(f"Critical error in analytics page: {str(e)}")
+        st.exception(e)
 
 def get_system_overview():
     """Display basic system statistics"""
@@ -149,51 +165,20 @@ def get_model_usage():
     try:
         with session_scope() as session:
             if session:
-                # Count users by their chosen AI provider
-                providers = []
-                settings_data = session.query(
-                    User.id,
-                    User.username,
-                    User.settings.llm_provider
-                ).join(
-                    User.settings
-                ).all()
+                # Simply count assistant messages as a basic metric
+                message_count = session.query(func.count(Message.id)).filter(
+                    Message.role == 'assistant'
+                ).scalar() or 0
                 
-                # Safely extract data
-                provider_counts = {}
-                for setting in settings_data:
-                    provider = setting[2] if setting[2] else "unknown"
-                    if provider in provider_counts:
-                        provider_counts[provider] += 1
-                    else:
-                        provider_counts[provider] = 1
+                st.metric("Total AI Responses", message_count)
                 
-                for provider, count in provider_counts.items():
-                    providers.append({
-                        'provider': provider,
-                        'count': count
-                    })
-                
-                # Display model usage data
-                if providers:
-                    df = pd.DataFrame(providers)
-                    
-                    # Display metrics
-                    st.subheader("Provider Distribution")
-                    st.dataframe(df)
-                    
-                    # Show basic message metrics
-                    message_count = session.query(func.count(Message.id)).filter(
-                        Message.role == 'assistant'
-                    ).scalar() or 0
-                    
-                    st.metric("Total AI Responses", message_count)
-                else:
-                    st.info("No model usage data available.")
+                # Display a simple note about model usage
+                st.info("For detailed model analytics, check the Settings page to see which AI models are configured.")
             else:
                 st.warning("Could not connect to the database.")
     except Exception as e:
         st.error(f"Error retrieving model usage: {str(e)}")
+        st.exception(e)  # Show detailed error for debugging
 
 def get_privacy_metrics():
     """Display simplified privacy-related metrics"""
