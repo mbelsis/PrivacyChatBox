@@ -308,22 +308,36 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
     
     return anonymized_text, detected
 
-def get_detection_events(user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+def get_detection_events(user_id: Optional[int] = None, limit: int = 50, include_username: bool = False) -> List[Dict[str, Any]]:
     """
-    Get recent detection events for a user
+    Get recent detection events for a user or all users
     
     Args:
-        user_id: ID of the user
+        user_id: ID of the user, or None to get events for all users (admin only)
         limit: Maximum number of events to return
+        include_username: Whether to include username in the results (for admin view)
         
     Returns:
         List of formatted detection events as dictionaries to avoid detached instance errors
     """
     try:
         with session_scope() as session:
-            events = session.query(DetectionEvent).filter(
-                DetectionEvent.user_id == user_id
-            ).order_by(
+            # Create base query
+            query = session.query(DetectionEvent)
+            
+            # Filter by user if specified
+            if user_id is not None:
+                query = query.filter(DetectionEvent.user_id == user_id)
+            
+            # Get username mapping if needed
+            usernames = {}
+            if include_username:
+                from models import User
+                users = session.query(User).all()
+                usernames = {user.id: user.username for user in users}
+            
+            # Execute query with ordering and limit
+            events = query.order_by(
                 DetectionEvent.timestamp.desc()
             ).limit(limit).all()
             
@@ -341,6 +355,11 @@ def get_detection_events(user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
                         "file_names": event.file_names,
                         "detected_patterns": event.detected_patterns if isinstance(event.detected_patterns, dict) else {}
                     }
+                    
+                    # Add username for admin view if requested
+                    if include_username and event.user_id in usernames:
+                        event_dict["username"] = usernames[event.user_id]
+                    
                     formatted_events.append(event_dict)
                 except Exception as e:
                     print(f"Error formatting event: {str(e)}")

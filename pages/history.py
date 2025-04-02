@@ -28,6 +28,9 @@ def show():
     
     # Get user information
     user_id = st.session_state.user_id
+    user_role = st.session_state.get("role", "user")
+    is_admin = user_role == "admin"
+    
     if not user_id:
         st.error("You must be logged in to access this page.")
         return
@@ -36,30 +39,148 @@ def show():
     history_tab, analytics_tab = st.tabs(["📜 History", "📊 Analytics"])
     
     with history_tab:
-        # Get all user conversations
+        # Get conversations based on user role
         session = get_session()
-        conversations = session.query(Conversation).filter(
-            Conversation.user_id == user_id
-        ).order_by(Conversation.updated_at.desc()).all()
+        
+        if is_admin:
+            # For admins, show all conversations with user information
+            st.subheader("All User Conversations")
+            
+            # Get users for mapping
+            users = {user.id: user.username for user in session.query(User).all()}
+            
+            # Get all conversations
+            conversations = session.query(Conversation).order_by(
+                Conversation.updated_at.desc()
+            ).all()
+            
+            # Add filtering options for admins
+            st.write("Filter conversations:")
+            filter_col1, filter_col2 = st.columns(2)
+            
+            with filter_col1:
+                # Create a list of all usernames with IDs
+                user_options = {"All Users": None}
+                user_options.update({username: uid for uid, username in users.items()})
+                
+                selected_user = st.selectbox(
+                    "User",
+                    options=list(user_options.keys()),
+                    index=0
+                )
+                
+                # Apply user filter if selected
+                selected_user_id = user_options.get(selected_user)
+                if selected_user_id is not None:
+                    conversations = [c for c in conversations if c.user_id == selected_user_id]
+            
+            with filter_col2:
+                # Date range filter
+                date_options = ["All Time", "Today", "Past Week", "Past Month"]
+                selected_date_range = st.selectbox(
+                    "Date Range",
+                    options=date_options,
+                    index=0
+                )
+                
+                # Apply date filter if selected
+                if selected_date_range != "All Time":
+                    now = datetime.now()
+                    if selected_date_range == "Today":
+                        date_threshold = datetime(now.year, now.month, now.day)
+                    elif selected_date_range == "Past Week":
+                        date_threshold = now - timedelta(days=7)
+                    elif selected_date_range == "Past Month":
+                        date_threshold = now - timedelta(days=30)
+                    
+                    conversations = [c for c in conversations if c.created_at >= date_threshold]
+        else:
+            # For regular users, show only their conversations
+            conversations = session.query(Conversation).filter(
+                Conversation.user_id == user_id
+            ).order_by(Conversation.updated_at.desc()).all()
+            
+            if not conversations:
+                st.info("You don't have any conversations yet. Start chatting to create one!")
+            else:
+                # Display conversations in a table
+                st.subheader("Your Conversations")
         
         # Close session
         session.close()
-        
-        if not conversations:
-            st.info("You don't have any conversations yet. Start chatting to create one!")
-        else:
-            # Display conversations in a table
-            st.subheader("Your Conversations")
     
     with analytics_tab:
-        st.subheader("Your Usage Analytics")
-        
-        # Load user-specific analytics data
+        # Load analytics data
         from models import Message, DetectionEvent, User
         from sqlalchemy.sql import func
         from privacy_scanner import get_detection_events
         import plotly.express as px
         from datetime import datetime, timedelta
+        
+        # Set title based on user role
+        if is_admin:
+            st.subheader("System-wide Analytics")
+            
+            # Add user filtering for admins
+            session = get_session()
+            users = {user.id: user.username for user in session.query(User).all()}
+            session.close()
+            
+            # Add filtering options
+            filter_col1, filter_col2 = st.columns(2)
+            
+            with filter_col1:
+                # User filter for admins
+                user_options = {"All Users": None}
+                user_options.update({username: uid for uid, username in users.items()})
+                
+                selected_user = st.selectbox(
+                    "User Analytics",
+                    options=list(user_options.keys()),
+                    index=0,
+                    key="analytics_user_filter"
+                )
+                
+                # Set analysis user ID based on filter
+                analysis_user_id = user_options.get(selected_user)
+                if analysis_user_id is None:
+                    # All users mode - admin only
+                    analysis_user_id = None
+                    user_filter = True
+                else:
+                    # Specific user mode
+                    user_filter = DetectionEvent.user_id == analysis_user_id
+            
+            with filter_col2:
+                # Date range filter
+                date_options = ["All Time", "Today", "Past Week", "Past Month"]
+                selected_date_range = st.selectbox(
+                    "Date Range",
+                    options=date_options,
+                    index=0,
+                    key="analytics_date_filter"
+                )
+                
+                # Set date range
+                now = datetime.now()
+                if selected_date_range == "Today":
+                    date_threshold = datetime(now.year, now.month, now.day)
+                    date_filter = DetectionEvent.timestamp >= date_threshold
+                elif selected_date_range == "Past Week":
+                    date_threshold = now - timedelta(days=7)
+                    date_filter = DetectionEvent.timestamp >= date_threshold
+                elif selected_date_range == "Past Month":
+                    date_threshold = now - timedelta(days=30)
+                    date_filter = DetectionEvent.timestamp >= date_threshold
+                else:
+                    # All time
+                    date_filter = True
+        else:
+            st.subheader("Your Usage Analytics")
+            analysis_user_id = user_id
+            # Regular users can only see their own data
+            user_filter = DetectionEvent.user_id == user_id
+            date_filter = True
         
         # Initialize analytics metrics
         total_conversations = 0
@@ -69,37 +190,48 @@ def show():
         detection_by_severity = {"low": 0, "medium": 0, "high": 0}
         detection_by_action = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0}
         conversations_by_date = {}
+        users_by_conversation_count = {}
         
         try:
-            # Get detection events for this user
-            detection_events = get_detection_events(user_id)
-            formatted_events = []
-            
             # Calculate metrics with error handling
             with get_session() as session:
                 if session:
+                    # Create base queries for conversations
+                    if analysis_user_id is not None:
+                        # Single user queries
+                        conversation_base_query = session.query(Conversation).filter(Conversation.user_id == analysis_user_id)
+                        detection_base_query = session.query(DetectionEvent).filter(DetectionEvent.user_id == analysis_user_id)
+                    else:
+                        # All users queries (admin only)
+                        conversation_base_query = session.query(Conversation)
+                        detection_base_query = session.query(DetectionEvent)
+                    
                     # Count conversations
-                    total_conversations = session.query(Conversation).filter(
-                        Conversation.user_id == user_id
-                    ).count()
+                    total_conversations = conversation_base_query.count()
                     
                     # Count messages
-                    total_messages = session.query(Message).join(
-                        Conversation, Message.conversation_id == Conversation.id
-                    ).filter(Conversation.user_id == user_id).count()
+                    if analysis_user_id is not None:
+                        # For a specific user
+                        total_messages = session.query(Message).join(
+                            Conversation, Message.conversation_id == Conversation.id
+                        ).filter(Conversation.user_id == analysis_user_id).count()
+                    else:
+                        # For all users
+                        total_messages = session.query(Message).count()
                     
                     # Count detection events
-                    total_detection_events = session.query(DetectionEvent).filter(
-                        DetectionEvent.user_id == user_id
-                    ).count()
+                    total_detection_events = detection_base_query.count()
                     
                     # Get severity breakdown - safely handle different cases
-                    severity_counts = session.query(
+                    severity_query = session.query(
                         DetectionEvent.severity, 
                         func.count(DetectionEvent.id)
-                    ).filter(
-                        DetectionEvent.user_id == user_id
-                    ).group_by(DetectionEvent.severity).all()
+                    )
+                    
+                    if analysis_user_id is not None:
+                        severity_query = severity_query.filter(DetectionEvent.user_id == analysis_user_id)
+                        
+                    severity_counts = severity_query.group_by(DetectionEvent.severity).all()
                     
                     # Convert to dictionary format safely
                     for severity, count in severity_counts:
@@ -107,12 +239,15 @@ def show():
                             detection_by_severity[severity] = count
                     
                     # Get action type breakdown
-                    action_counts = session.query(
+                    action_query = session.query(
                         DetectionEvent.action, 
                         func.count(DetectionEvent.id)
-                    ).filter(
-                        DetectionEvent.user_id == user_id
-                    ).group_by(DetectionEvent.action).all()
+                    )
+                    
+                    if analysis_user_id is not None:
+                        action_query = action_query.filter(DetectionEvent.user_id == analysis_user_id)
+                        
+                    action_counts = action_query.group_by(DetectionEvent.action).all()
                     
                     # Convert to dictionary format safely
                     for action, count in action_counts:
@@ -124,11 +259,16 @@ def show():
                     
                     # Get counts by date for the past 30 days
                     thirty_days_ago = datetime.now() - timedelta(days=30)
-                    conversations_by_date_query = session.query(
+                    
+                    date_query = session.query(
                         func.date(Conversation.created_at),
                         func.count(Conversation.id)
-                    ).filter(
-                        Conversation.user_id == user_id,
+                    )
+                    
+                    if analysis_user_id is not None:
+                        date_query = date_query.filter(Conversation.user_id == analysis_user_id)
+                        
+                    conversations_by_date_query = date_query.filter(
                         Conversation.created_at >= thirty_days_ago
                     ).group_by(func.date(Conversation.created_at)).all()
                     
@@ -144,6 +284,17 @@ def show():
                         else:
                             date_key = date_str.strftime('%Y-%m-%d')
                         conversations_by_date[date_key] = count
+                    
+                    # For admin view, get conversation counts by user
+                    if is_admin and analysis_user_id is None:
+                        user_conversation_counts = session.query(
+                            Conversation.user_id,
+                            func.count(Conversation.id)
+                        ).group_by(Conversation.user_id).all()
+                        
+                        for user_id_val, count in user_conversation_counts:
+                            user_name = users.get(user_id_val, f"User {user_id_val}")
+                            users_by_conversation_count[user_name] = count
         except Exception as e:
             st.error(f"Error loading analytics data: {str(e)}")
         
@@ -163,7 +314,7 @@ def show():
             st.metric("Blocked Sensitive Files", total_dlp_blocks)
         
         # Create data for charts
-        st.subheader("Privacy Detection by Severity")
+        st.subheader("Privacy Detection Analysis")
         severity_df = pd.DataFrame({
             "Severity": list(detection_by_severity.keys()),
             "Count": list(detection_by_severity.values())
@@ -247,9 +398,38 @@ def show():
             st.plotly_chart(activity_fig, use_container_width=True)
         else:
             st.info("No conversation activity in the past 30 days.")
+        
+        # For admin view, show user distribution chart
+        if is_admin and analysis_user_id is None and users_by_conversation_count:
+            st.subheader("Conversation Distribution by User")
+            user_df = pd.DataFrame({
+                "User": list(users_by_conversation_count.keys()),
+                "Conversations": list(users_by_conversation_count.values())
+            })
+            
+            # Sort by conversation count
+            user_df = user_df.sort_values("Conversations", ascending=False)
+            
+            # Create bar chart
+            user_fig = px.bar(
+                user_df,
+                x="User",
+                y="Conversations",
+                color="Conversations",
+                color_continuous_scale="Viridis",
+                title="Users by Conversation Count"
+            )
+            user_fig.update_layout(margin=dict(t=50, b=50, l=20, r=20))
+            st.plotly_chart(user_fig, use_container_width=True)
     
     # Create a dataframe from the conversations
     conversation_data = []
+    
+    # Get usernames for admin view
+    if is_admin:
+        session = get_session()
+        users = {user.id: user.username for user in session.query(User).all()}
+        session.close()
     
     for conv in conversations:
         # Initialize message counters safely
@@ -275,32 +455,47 @@ def show():
         created_date = conv.created_at.strftime("%Y-%m-%d %H:%M")
         updated_date = conv.updated_at.strftime("%Y-%m-%d %H:%M")
         
-        # Add to data
-        conversation_data.append({
+        # Create conversation data dict
+        conv_data = {
             "ID": conv.id,
             "Title": conv.title,
             "Created": created_date,
             "Last Updated": updated_date,
             "Messages": message_count,
-            "User": user_messages,
-            "AI": ai_messages
-        })
+            "User Msgs": user_messages,
+            "AI Msgs": ai_messages
+        }
+        
+        # Add username for admin view
+        if is_admin:
+            username = users.get(conv.user_id, f"User {conv.user_id}")
+            conv_data["Username"] = username
+        
+        # Add to data
+        conversation_data.append(conv_data)
     
     # Create dataframe
     df = pd.DataFrame(conversation_data)
     
-    # Display the table
+    # Display the table with column configuration based on user role
+    column_config = {
+        "ID": st.column_config.Column("ID", width="small"),
+        "Title": st.column_config.Column("Title", width="medium"),
+        "Created": st.column_config.Column("Created", width="medium"),
+        "Last Updated": st.column_config.Column("Last Updated", width="medium"),
+        "Messages": st.column_config.Column("Messages", width="small"),
+        "User Msgs": st.column_config.Column("User Msgs", width="small"),
+        "AI Msgs": st.column_config.Column("AI Msgs", width="small")
+    }
+    
+    # Add Username column for admin view
+    if is_admin:
+        column_config["Username"] = st.column_config.Column("Username", width="medium")
+    
+    # Display dataframe with configured columns
     st.dataframe(
         df,
-        column_config={
-            "ID": st.column_config.Column("ID", width="small"),
-            "Title": st.column_config.Column("Title", width="medium"),
-            "Created": st.column_config.Column("Created", width="medium"),
-            "Last Updated": st.column_config.Column("Last Updated", width="medium"),
-            "Messages": st.column_config.Column("Messages", width="small"),
-            "User": st.column_config.Column("User Msgs", width="small"),
-            "AI": st.column_config.Column("AI Msgs", width="small")
-        },
+        column_config=column_config,
         hide_index=True,
         use_container_width=True
     )
