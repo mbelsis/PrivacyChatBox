@@ -228,12 +228,7 @@ The application supports two types of user roles with different permissions:
 
 The application can be easily deployed using Docker and Docker Compose:
 
-### Prerequisites for Docker Deployment
-
-- Docker Engine (version 20.10.0 or higher)
-- Docker Compose (version 2.0.0 or higher)
-
-### Running with Docker Compose
+### Quick Docker Setup
 
 1. Clone the repository:
    ```bash
@@ -241,46 +236,16 @@ The application can be easily deployed using Docker and Docker Compose:
    cd PrivacyChatBoX
    ```
 
-2. Configure environment variables (optional):
-   Create a `.env` file in the project root with your API keys and settings, or edit the `docker-compose.yml` file directly.
-
-3. Start the application:
+2. Start the application:
    ```bash
    docker-compose up -d
    ```
 
-4. Access the application at `http://localhost:5000`
+3. Access the application at `http://localhost:5000`
 
-5. Stop the application:
-   ```bash
-   docker-compose down
-   ```
-
-### Docker Development Environment
-
-For development, you can use the included `docker-compose.override.yml`:
-
-```bash
-# Start with development configuration (includes Adminer for database management)
-docker-compose -f docker-compose.yml -f docker-compose.override.yml up
-
-# Access Adminer database management interface at http://localhost:8080
-# Login with:
-#   System: PostgreSQL
-#   Server: db
-#   Username: postgres
-#   Password: postgres
-#   Database: privacychatbox
-```
-
-### Docker Image Configuration
-
-The Docker configuration includes:
-- Base Python 3.11 image with needed system dependencies
-- PostgreSQL database container
-- Database migration automation
-- Persistent volumes for database data and local LLM models
-- Adminer for database management in development environment
+For a complete step-by-step guide on Docker deployment, configuration, and troubleshooting, see:
+- [Docker Setup Guide](docs/docker-setup.md) - Comprehensive instructions for Docker deployment
+- [Docker Guide](docs/Docker_Guide.md) - Detailed reference and advanced configurations
 
 ## Environment Variables
 
