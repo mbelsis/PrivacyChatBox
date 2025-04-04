@@ -1,66 +1,81 @@
 import re
 import json
 import uuid
+import time
 from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime
 import streamlit as st
 from database import get_session, session_scope
 from models import User, Settings, DetectionEvent
 
-# Define patterns with their levels
+# Define patterns with their levels and confidence scores
 DEFAULT_PATTERNS = [
     # Basic identifiers - Standard level
-    {"name": "credit_card", "pattern": r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b", "level": "standard"},
-    {"name": "ssn", "pattern": r"\b(?!000|666|9\d{2})\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}\b", "level": "standard"},
-    {"name": "email", "pattern": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "level": "standard"},
-    {"name": "phone_number", "pattern": r"\b(?:\+?\d{1,3}[ -]?)?(?:\(?\d{2,4}\)?[ -]?)?\d{3,4}[ -]?\d{3,4}\b", "level": "standard"},
-    {"name": "msisdn", "pattern": r"\+?[1-9]\d{6,14}\b", "level": "standard"},
-    {"name": "ip_address", "pattern": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "level": "standard"},
-    {"name": "date_of_birth", "pattern": r"\b(?:\d{2}[/-]\d{2}[/-]\d{4}|\d{4}[/-]\d{2}[/-]\d{2})\b", "level": "standard"},
-    {"name": "address", "pattern": r"\b\d{1,5}\s+(?:[A-Za-z]+\s?)+\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln)\b", "level": "standard"},
+    {"name": "credit_card", "pattern": r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b", "level": "standard", "confidence": 0.95},
+    {"name": "ssn", "pattern": r"\b(?!000|666|9\d{2})\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}\b", "level": "standard", "confidence": 0.95},
+    {"name": "email", "pattern": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "level": "standard", "confidence": 0.9},
+    {"name": "phone_number", "pattern": r"\b(?:\+?\d{1,3}[ -]?)?(?:\(?\d{2,4}\)?[ -]?)?\d{3,4}[ -]?\d{3,4}\b", "level": "standard", "confidence": 0.85},
+    {"name": "msisdn", "pattern": r"\+?[1-9]\d{6,14}\b", "level": "standard", "confidence": 0.9},
+    {"name": "ip_address", "pattern": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "level": "standard", "confidence": 0.8},
+    {"name": "date_of_birth", "pattern": r"\b(?:\d{2}[/-]\d{2}[/-]\d{4}|\d{4}[/-]\d{2}[/-]\d{2})\b", "level": "standard", "confidence": 0.8},
+    {"name": "address", "pattern": r"\b\d{1,5}\s+(?:[A-Za-z]+\s?)+\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln)\b", "level": "standard", "confidence": 0.85},
     
     # Credentials - Standard level
-    {"name": "password", "pattern": r"\b(password|passwd|pwd)[\"]?\s*[:=]\s*[\"]?.{6,}[\"]?\b", "level": "standard"},
-    {"name": "api_key", "pattern": r"\b(?:api_key|apikey|access_token|token|secret|bearer)[\"]?\s*[:=]\s*[\"]?[A-Za-z0-9\-_]{16,64}[\"]?\b", "level": "standard"},
+    {"name": "password", "pattern": r"\b(password|passwd|pwd)[\"]?\s*[:=]\s*[\"]?.{6,}[\"]?\b", "level": "standard", "confidence": 0.95},
+    {"name": "api_key", "pattern": r"\b(?:api_key|apikey|access_token|token|secret|bearer)[\"]?\s*[:=]\s*[\"]?[A-Za-z0-9\-_]{16,64}[\"]?\b", "level": "standard", "confidence": 0.95},
     
     # Cloud provider tokens - Standard level
-    {"name": "aws_access_key", "pattern": r"AKIA[0-9A-Z]{16}", "level": "standard"},
-    {"name": "aws_secret_key", "pattern": r"(?i)aws_secret_access_key\s*[:=]\s*[\"]?[A-Za-z0-9/+=]{40}[\"]?", "level": "standard"},
-    {"name": "google_api_key", "pattern": r"AIza[0-9A-Za-z\-_]{35}", "level": "standard"},
+    {"name": "aws_access_key", "pattern": r"AKIA[0-9A-Z]{16}", "level": "standard", "confidence": 0.98},
+    {"name": "aws_secret_key", "pattern": r"(?i)aws_secret_access_key\s*[:=]\s*[\"]?[A-Za-z0-9/+=]{40}[\"]?", "level": "standard", "confidence": 0.98},
+    {"name": "google_api_key", "pattern": r"AIza[0-9A-Za-z\-_]{35}", "level": "standard", "confidence": 0.98},
     
     # Classification terms - Standard level
-    {"name": "classification", "pattern": r"\b(confidential|strictly confidential|secret|internal use only|proprietary|classified)\b", "level": "standard"},
+    {"name": "classification", "pattern": r"\b(confidential|strictly confidential|secret|internal use only|proprietary|classified)\b", "level": "standard", "confidence": 0.8},
     
     # JWT token - Standard level
-    {"name": "jwt", "pattern": r"\beyJ[A-Za-z0-9\-_]+?\.eyJ[A-Za-z0-9\-_]+?\.[A-Za-z0-9\-_]+\b", "level": "standard"},
+    {"name": "jwt", "pattern": r"\beyJ[A-Za-z0-9\-_]+?\.eyJ[A-Za-z0-9\-_]+?\.[A-Za-z0-9\-_]+\b", "level": "standard", "confidence": 0.9},
     
     # Private keys - Standard level
-    {"name": "private_key", "pattern": r"-----BEGIN (RSA|DSA|EC|OPENSSH)? PRIVATE KEY-----", "level": "standard"},
+    {"name": "private_key", "pattern": r"-----BEGIN (RSA|DSA|EC|OPENSSH)? PRIVATE KEY-----", "level": "standard", "confidence": 0.98},
     
     # Names and personal info - Strict level
-    {"name": "name", "pattern": r"\b([A-Z][a-z]+ [A-Z][a-z]+)\b", "level": "strict"},
+    {"name": "name", "pattern": r"\b([A-Z][a-z]+ [A-Z][a-z]+)\b", "level": "strict", "confidence": 0.7},
     
     # URLs and web resources - Strict level
-    {"name": "url", "pattern": r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)", "level": "strict"},
+    {"name": "url", "pattern": r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)", "level": "strict", "confidence": 0.7},
     
     # IDs and identifiers - Strict level
-    {"name": "uuid", "pattern": r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", "level": "strict"},
-    {"name": "passport", "pattern": r"\b[A-Z]{1,2}[0-9]{6,9}\b", "level": "strict"},
+    {"name": "uuid", "pattern": r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", "level": "strict", "confidence": 0.8},
+    {"name": "passport", "pattern": r"\b[A-Z]{1,2}[0-9]{6,9}\b", "level": "strict", "confidence": 0.85},
     
     # Financial information - Strict level
-    {"name": "iban", "pattern": r"\b[A-Z]{2}\d{2}(?:[ ]?[0-9A-Z]){11,30}\b", "level": "strict"},
-    {"name": "bank_account", "pattern": r"\b[0-9]{8,17}\b", "level": "strict"},
+    {"name": "iban", "pattern": r"\b[A-Z]{2}\d{2}(?:[ ]?[0-9A-Z]){11,30}\b", "level": "strict", "confidence": 0.9},
+    {"name": "bank_account", "pattern": r"\b[0-9]{8,17}\b", "level": "strict", "confidence": 0.75},
     
     # Regional specific identifiers - Strict level
-    {"name": "uk_nino", "pattern": r"\b(?!BG|GB|NK|KN|TN|NT|ZZ)([A-CEGHJ-PR-TW-Z]{2})\d{6}[A-D]\b", "level": "strict"},
-    {"name": "greek_amka", "pattern": r"\b\d{11}\b", "level": "strict"},
-    {"name": "greek_tax_id", "pattern": r"\b\d{9}\b", "level": "strict"}
+    {"name": "uk_nino", "pattern": r"\b(?!BG|GB|NK|KN|TN|NT|ZZ)([A-CEGHJ-PR-TW-Z]{2})\d{6}[A-D]\b", "level": "strict", "confidence": 0.9},
+    {"name": "greek_amka", "pattern": r"\b\d{11}\b", "level": "strict", "confidence": 0.85},
+    {"name": "greek_tax_id", "pattern": r"\b\d{9}\b", "level": "strict", "confidence": 0.85}
 ]
+
+# Precompile all patterns at module load time
+COMPILED_PATTERNS = {}
+
+for pattern in DEFAULT_PATTERNS:
+    COMPILED_PATTERNS[pattern["name"]] = {
+        "regex": re.compile(pattern["pattern"]),
+        "level": pattern["level"],
+        "confidence": pattern["confidence"]
+    }
 
 # Generate dictionaries from patterns for backward compatibility
 STANDARD_PATTERNS = {pattern["name"]: pattern["pattern"] for pattern in DEFAULT_PATTERNS if pattern["level"] == "standard"}
 STRICT_PATTERNS = {**STANDARD_PATTERNS}
 STRICT_PATTERNS.update({pattern["name"]: pattern["pattern"] for pattern in DEFAULT_PATTERNS if pattern["level"] == "strict"})
+
+# Precompiled pattern dictionaries
+COMPILED_STANDARD_PATTERNS = {name: COMPILED_PATTERNS[name] for name in STANDARD_PATTERNS.keys()}
+COMPILED_STRICT_PATTERNS = {name: COMPILED_PATTERNS[name] for name in STRICT_PATTERNS.keys()}
 
 def get_user_settings(user_id: int) -> Optional[Settings]:
     """Get user settings for privacy scanning"""
@@ -86,19 +101,21 @@ def get_user_settings(user_id: int) -> Optional[Settings]:
         print(f"Error getting user settings: {str(e)}")
         return None
 
-def scan_text(user_id: int, text: str) -> Tuple[bool, Dict[str, List[str]]]:
+def scan_text(user_id: int, text: str, minimum_confidence: float = 0.7) -> Tuple[bool, Dict[str, List[str]]]:
     """
-    Scan text for sensitive information
+    Scan text for sensitive information using precompiled regex patterns
     
     Args:
         user_id: ID of the current user
         text: Text to scan
+        minimum_confidence: Minimum confidence score to consider a match (0.0-1.0)
         
     Returns:
         Tuple containing:
             - Boolean indicating if sensitive information was found
             - Dictionary of detected patterns with type as key and list of matches as value
     """
+    start_time = time.time()
     settings = get_user_settings(user_id)
     
     if not settings:
@@ -110,29 +127,49 @@ def scan_text(user_id: int, text: str) -> Tuple[bool, Dict[str, List[str]]]:
     
     # Determine which pattern set to use based on scan level
     if settings.scan_level == "strict":
-        patterns = STRICT_PATTERNS.copy()
+        compiled_patterns = COMPILED_STRICT_PATTERNS.copy()
     else:  # "standard" or any other value
-        patterns = STANDARD_PATTERNS.copy()
+        compiled_patterns = COMPILED_STANDARD_PATTERNS.copy()
     
     # Add custom patterns if available
     custom_patterns = settings.get_custom_patterns()
     is_strict_mode = settings.scan_level == "strict"
     
+    # Compile and add custom patterns
+    custom_compiled_patterns = {}
     for pattern_dict in custom_patterns:
         if isinstance(pattern_dict, dict) and "name" in pattern_dict and "pattern" in pattern_dict:
             # Check if pattern has a level attribute (backward compatibility)
             pattern_level = pattern_dict.get("level", "standard")
+            pattern_confidence = pattern_dict.get("confidence", 0.8)  # Default confidence for custom patterns
             
             # Only add the pattern if:
             # - In strict mode: include all patterns (both standard and strict)
             # - In standard mode: only include patterns marked as "standard"
             if is_strict_mode or pattern_level == "standard":
-                patterns[pattern_dict["name"]] = pattern_dict["pattern"]
+                # Compile the custom pattern
+                try:
+                    regex = re.compile(pattern_dict["pattern"])
+                    custom_compiled_patterns[pattern_dict["name"]] = {
+                        "regex": regex,
+                        "level": pattern_level,
+                        "confidence": pattern_confidence
+                    }
+                except Exception as e:
+                    print(f"Error compiling custom pattern {pattern_dict['name']}: {str(e)}")
     
-    # Scan text with all patterns
+    # Merge custom patterns with standard/strict patterns
+    compiled_patterns.update(custom_compiled_patterns)
+    
+    # Scan text with all patterns using precompiled regex
     detected = {}
-    for pattern_name, pattern in patterns.items():
-        matches = re.findall(pattern, text)
+    for pattern_name, pattern_info in compiled_patterns.items():
+        # Skip patterns with confidence below threshold
+        if pattern_info["confidence"] < minimum_confidence:
+            continue
+            
+        # Use the precompiled regex for faster matching
+        matches = pattern_info["regex"].findall(text)
         if matches:
             detected[pattern_name] = matches
     
@@ -156,15 +193,20 @@ def scan_text(user_id: int, text: str) -> Tuple[bool, Dict[str, List[str]]]:
         except Exception as e:
             print(f"Error logging detection event: {str(e)}")
     
+    # Optionally log performance metrics
+    scan_time = time.time() - start_time
+    if sensitive_found:
+        print(f"Privacy scan completed in {scan_time:.4f}s: found {len(detected)} pattern types")
+    
     return sensitive_found, detected
 
 def scan_file_content(user_id: int, file_content: str, file_name: str) -> Tuple[bool, Dict[str, List[str]]]:
     """
-    Scan file content for sensitive information
+    Scan file content for sensitive information (basic version for direct string content)
     
     Args:
         user_id: ID of the current user
-        file_content: Content of the file
+        file_content: Content of the file as string
         file_name: Name of the file
         
     Returns:
@@ -192,6 +234,64 @@ def scan_file_content(user_id: int, file_content: str, file_name: str) -> Tuple[
             print(f"Error logging file detection event: {str(e)}")
     
     return sensitive_found, detected
+
+def scan_file_path(user_id: int, file_path: str, file_name: str, file_type: str) -> Tuple[bool, Dict[str, List[str]], float]:
+    """
+    Scan a file from disk using chunked processing for large files
+    
+    Args:
+        user_id: ID of the current user
+        file_path: Path to the file on disk
+        file_name: Original name of the file
+        file_type: MIME type or file extension
+        
+    Returns:
+        Tuple containing:
+            - Boolean indicating if sensitive information was found
+            - Dictionary of detected patterns with type as key and list of matches as value
+            - Processing time in seconds
+    """
+    import file_processor
+    
+    # Create a scanner function that will be applied to each chunk
+    def chunk_scanner(text_chunk: str) -> Tuple[bool, Dict[str, List[str]]]:
+        # Skip empty chunks
+        if not text_chunk or len(text_chunk.strip()) == 0:
+            return False, {}
+        
+        # Use our normal scan_text function
+        return scan_text(user_id, text_chunk)
+    
+    # Process the file in chunks with parallel processing
+    sensitive_found, detected, processing_time = file_processor.scan_file_chunks(
+        file_path=file_path,
+        file_type=file_type,
+        scanner_func=chunk_scanner,
+        chunk_size=2000,  # Adjust based on expected file sizes
+        max_workers=4     # Adjust based on system capabilities
+    )
+    
+    # Log detection event if sensitive information was found
+    if sensitive_found:
+        try:
+            with session_scope() as session:
+                detection_event = DetectionEvent(
+                    user_id=user_id,
+                    timestamp=datetime.now(),
+                    action="scan",
+                    severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
+                    detected_patterns=detected,
+                    file_names=file_name
+                )
+                session.add(detection_event)
+                # session_scope handles commit and close
+        except Exception as e:
+            print(f"Error logging file detection event: {str(e)}")
+    
+    # Log performance metrics
+    print(f"File scan completed in {processing_time:.4f}s: found {len(detected)} pattern types in {file_name}")
+    
+    return sensitive_found, detected, processing_time
 
 def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
     """

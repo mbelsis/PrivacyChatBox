@@ -84,7 +84,8 @@ PrivacyChatBoX/
     ├── Setup_Guide.md      # Detailed setup instructions
     ├── Troubleshooting.md  # Solutions for common issues
     ├── ConversationData.md # Conversation data formatting guide
-    └── LocalLLM.md         # Local LLM integration guide
+    ├── LocalLLM.md         # Local LLM integration guide
+    └── Optimization_Guide.md # Performance optimization techniques
 ```
 
 ## Setup and Installation
@@ -270,6 +271,19 @@ This application requires various API keys for full functionality:
 - **Claude API Key**: Get from [Anthropic Console](https://console.anthropic.com/account/keys)
 - **Gemini API Key**: Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
 - **SerpAPI Key**: Get from [SerpAPI](https://serpapi.com/)
+
+## Performance Optimizations
+
+PrivacyChatBoX includes several performance optimizations to improve scanning speed and memory efficiency:
+
+- **Pre-compiled Regex Patterns**: All privacy patterns are pre-compiled at startup for faster matching
+- **Confidence Scoring**: Each pattern has a confidence score to reduce false positives
+- **Chunked File Processing**: Large files are processed in manageable chunks to prevent memory issues
+- **Parallel Processing**: Multi-threading support for faster document scanning
+- **Adaptive Loading**: Document processing libraries are loaded conditionally as needed
+
+For detailed information on performance optimizations, see [Optimization Guide](docs/Optimization_Guide.md).
+
 
 ## Local LLM Integration
 
