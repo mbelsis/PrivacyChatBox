@@ -7,48 +7,65 @@ def create_sidebar(page_name=""):
     Args:
         page_name: Optional identifier for the current page to create unique button keys
     """
+    # Fixed width CSS to prevent sidebar trembling
+    fixed_width_css = """
+    <style>
+    section[data-testid="stSidebar"] {
+        width: 18rem !important;
+        min-width: 18rem !important;
+        max-width: 18rem !important;
+        transition: none !important;
+    }
+    </style>
+    """
+    st.markdown(fixed_width_css, unsafe_allow_html=True)
+    
     # Create a container for the sidebar with fixed width styling
     with st.sidebar:
         # Only show logo in sidebar for authenticated users to avoid duplication
         if st.session_state.get("authenticated", False):
+            # Apply button styles
+            button_style = """
+            <style>
+            div[data-testid="stVerticalBlock"] div.stButton > button {
+                width: 100%;
+                border: none;
+                padding: 15px 15px; 
+                text-align: left;
+                font-size: 16px;
+                font-weight: 500;
+                border-radius: 10px;
+                margin-bottom: 8px;
+                display: flex;
+                align-items: center;
+                background-color: #f0f8ff;
+                transition: none !important;
+            }
+            div[data-testid="stVerticalBlock"] div.stButton > button:hover {
+                background-color: #e1f5fe;
+                border-left: 4px solid #1e88e5;
+            }
+            .sidebar-content {
+                padding-top: 1rem;
+                padding-bottom: 1rem;
+            }
+            </style>
+            """
+            st.markdown(button_style, unsafe_allow_html=True)
+            
             # Center the logo horizontally and make it bigger
             col1, col2, col3 = st.columns([1, 3, 1])
             with col2:
                 st.image("assets/logo.png", width=160)
             # Title already included in the logo
-            st.caption(f"Welcome, **{st.session_state.username}** ({st.session_state.role})")
+            st.markdown(f"<div style='text-align:center; margin-bottom:10px;'>Welcome, <b>{st.session_state.username}</b> ({st.session_state.role})</div>", unsafe_allow_html=True)
             
             st.markdown("---")
             
             # Create a container with a colored background and rounded corners for the navigation menu
+            # Use a specific height to prevent content shifting
             menu_container = st.container()
             with menu_container:
-                # Apply button styles
-                button_style = """
-                <style>
-                div[data-testid="stVerticalBlock"] div.stButton > button {
-                    width: 100%;
-                    border: none;
-                    padding: 15px 15px; 
-                    text-align: left;
-                    font-size: 16px;
-                    font-weight: 500;
-                    border-radius: 10px;
-                    margin-bottom: 8px;
-                    display: flex;
-                    align-items: center;
-                    background-color: #f0f8ff;
-                    transition: all 0.2s ease-in-out;
-                    transform: translateZ(0);
-                }
-                div[data-testid="stVerticalBlock"] div.stButton > button:hover {
-                    background-color: #e1f5fe;
-                    border-left: 4px solid #1e88e5;
-                }
-                </style>
-                """
-                st.markdown(button_style, unsafe_allow_html=True)
-                
                 # Add menu buttons with prominent icons and colored backgrounds
                 menu_options = {
                     "chat": {"icon": "💬", "label": "Chat", "path": "pages/chat.py", "color": "#e3f2fd"},
@@ -77,10 +94,11 @@ def create_sidebar(page_name=""):
                         if st.button(option["label"], key=button_key, use_container_width=True):
                             st.switch_page(option["path"])
             
-            # Add spacer
-            st.markdown("<br>" * 3, unsafe_allow_html=True)
+            # Use a fixed height spacer instead of variable <br> tags
+            st.markdown('<div style="height:100px"></div>', unsafe_allow_html=True)
             
-            # Add theme toggle and logout buttons at the bottom
+            # Add theme toggle and logout buttons at the bottom with improved styling
+            st.markdown('<div style="position:fixed; bottom:30px; width:16rem;">', unsafe_allow_html=True)
             theme_col, logout_col = st.columns(2)
             
             with theme_col:
@@ -105,3 +123,5 @@ def create_sidebar(page_name=""):
                     for key in list(st.session_state.keys()):
                         del st.session_state[key]
                     st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
