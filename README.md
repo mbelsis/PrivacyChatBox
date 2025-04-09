@@ -393,9 +393,18 @@ Here are some screenshots showing the various interfaces of the PrivacyChatBoX a
 ## License
 
 This project is licensed under a dual-license model:
-- Free for non-commercial use
-- Requires a commercial license for business applications
 
-See the [LICENSE.md](LICENSE.md) file for complete details.
+### Non-Commercial Use
+- **Free** for personal, educational, research, and non-profit use
+- Permission to use, modify, and redistribute for non-commercial purposes
+- Must include original copyright notice and license terms
+- Contributions back to the project welcome under same license terms
 
-DISCLAIMER: Please use this software at your own risk.
+### Commercial Use
+- Requires a paid commercial license for any business or revenue-generating applications
+- Contact the copyright holders for commercial licensing options and pricing
+- Enterprise support and customization available under commercial agreements
+
+The full license terms are available in the [LICENSE.md](LICENSE.md) file, which includes all conditions, disclaimers, and limitations. This dual-licensing approach helps maintain the project's sustainable development while providing free access for non-commercial users.
+
+**DISCLAIMER:** This software is provided "AS IS" without warranty of any kind. Use at your own risk. The developers assume no liability for any damages or losses resulting from the use of this software.
