@@ -259,9 +259,38 @@ The application supports two types of user roles with different permissions:
 6. **Model Manager**: Download and configure local LLM models (admin only)
 
 
-## Environment Variables
+## Environment Variables and Security
 
-Refer to the Settings page > Environment Config tab for a complete list of available environment variables and their descriptions.
+This application uses environment variables to store sensitive configuration like API keys and database credentials. This approach enhances security by keeping secrets out of your code repository.
+
+### Environment Setup
+
+1. **Create your .env file**:
+   - Copy the provided `.env.example` file:
+     ```bash
+     cp .env.example .env
+     ```
+   - Edit the `.env` file with your actual credentials
+
+2. **Security measures in place**:
+   - The `.gitignore` file is configured to exclude the `.env` file from git
+   - Environment variables are loaded at runtime and never stored in the database
+   - API keys are accessed only when needed for specific operations
+
+3. **Available variables**:
+   - Database connection: `DATABASE_URL`
+   - API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `SERPAPI_KEY`
+   - Azure authentication: `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, etc.
+   - Microsoft DLP: `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, etc.
+
+You can also refer to the Settings page > Environment Config tab for a complete list of available environment variables and additional descriptions.
+
+### ⚠️ Important Security Notes
+
+- **NEVER commit your `.env` file** to version control
+- Double-check your `.gitignore` file includes `.env` entries
+- Regularly rotate your API keys for production deployments
+- Use separate API keys for development and production environments
 
 ## API Keys
 
