@@ -392,4 +392,10 @@ Here are some screenshots showing the various interfaces of the PrivacyChatBoX a
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under a dual-license model:
+- Free for non-commercial use
+- Requires a commercial license for business applications
+
+See the [LICENSE.md](LICENSE.md) file for complete details.
+
+DISCLAIMER: Please use this software at your own risk.
