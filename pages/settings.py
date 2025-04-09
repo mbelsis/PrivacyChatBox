@@ -90,12 +90,21 @@ def show():
         if selected_provider == "openai":
             st.subheader("OpenAI Settings")
             
-            openai_api_key = st.text_input(
-                "OpenAI API Key", 
-                value=settings.openai_api_key,
-                type="password",
-                help="Your OpenAI API key. Get one at https://platform.openai.com/account/api-keys"
-            )
+            # Use environment variable if available, otherwise show as empty
+            env_openai_key = os.environ.get("OPENAI_API_KEY", "")
+            openai_key_status = "Set in environment" if env_openai_key else "Not set"
+            
+            st.info(f"OpenAI API Key status: **{openai_key_status}**")
+            st.markdown("""
+            API keys are now stored in environment variables for enhanced security. 
+            To set your API key, add it to your environment variables or .env file:
+            ```
+            OPENAI_API_KEY=your_key_here
+            ```
+            """)
+            
+            # Pass empty string to maintain compatibility with existing code
+            openai_api_key = ""
             
             openai_model = st.selectbox(
                 "OpenAI Model",
@@ -123,12 +132,21 @@ def show():
         elif selected_provider == "claude":
             st.subheader("Claude Settings")
             
-            claude_api_key = st.text_input(
-                "Claude API Key", 
-                value=settings.claude_api_key,
-                type="password",
-                help="Your Anthropic Claude API key. Get one at https://console.anthropic.com/account/keys"
-            )
+            # Use environment variable if available, otherwise show as empty
+            env_claude_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            claude_key_status = "Set in environment" if env_claude_key else "Not set"
+            
+            st.info(f"Claude API Key status: **{claude_key_status}**")
+            st.markdown("""
+            API keys are now stored in environment variables for enhanced security. 
+            To set your API key, add it to your environment variables or .env file:
+            ```
+            ANTHROPIC_API_KEY=your_key_here
+            ```
+            """)
+            
+            # Pass empty string to maintain compatibility with existing code
+            claude_api_key = ""
             
             claude_model = st.selectbox(
                 "Claude Model",
@@ -156,12 +174,21 @@ def show():
         elif selected_provider == "gemini":
             st.subheader("Gemini Settings")
             
-            gemini_api_key = st.text_input(
-                "Gemini API Key", 
-                value=settings.gemini_api_key,
-                type="password",
-                help="Your Google AI Studio API key. Get one at https://makersuite.google.com/app/apikey"
-            )
+            # Use environment variable if available, otherwise show as empty
+            env_gemini_key = os.environ.get("GOOGLE_API_KEY", "")
+            gemini_key_status = "Set in environment" if env_gemini_key else "Not set"
+            
+            st.info(f"Gemini API Key status: **{gemini_key_status}**")
+            st.markdown("""
+            API keys are now stored in environment variables for enhanced security. 
+            To set your API key, add it to your environment variables or .env file:
+            ```
+            GOOGLE_API_KEY=your_key_here
+            ```
+            """)
+            
+            # Pass empty string to maintain compatibility with existing code
+            gemini_api_key = ""
             
             gemini_model = st.selectbox(
                 "Gemini Model",
@@ -271,12 +298,21 @@ def show():
         # Search API settings
         st.subheader("Search API Settings (Optional)")
         
-        serpapi_key = st.text_input(
-            "SerpAPI Key", 
-            value=settings.serpapi_key,
-            type="password",
-            help="Your SerpAPI key for web search capabilities"
-        )
+        # Use environment variable if available, otherwise show as empty
+        env_serpapi_key = os.environ.get("SERPAPI_KEY", "")
+        serpapi_key_status = "Set in environment" if env_serpapi_key else "Not set"
+        
+        st.info(f"SerpAPI Key status: **{serpapi_key_status}**")
+        st.markdown("""
+        API keys are now stored in environment variables for enhanced security. 
+        To set your API key, add it to your environment variables or .env file:
+        ```
+        SERPAPI_KEY=your_key_here
+        ```
+        """)
+        
+        # Pass empty string to maintain compatibility with existing code
+        serpapi_key = ""
         
         if st.button("Save Search API Settings"):
             success = update_user_settings(

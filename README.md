@@ -2,13 +2,13 @@
 
 ![PrivacyChatBoX Logo](assets/logo.png)
 
+> **IMPORTANT NOTICE**: This project is still a work in progress. Some features may be incomplete or subject to change.
+
 ## Overview
 
 PrivacyChatBoX is a comprehensive Python-based AI privacy protection platform that provides an intuitive and engaging approach to safeguarding sensitive information across multiple document types and providers. 
 
 This application offers a privacy-focused environment for AI interactions with multiple model integrations while ensuring user data remains secure.
-
-This application is still work in progress
 
 ## Key Features
 

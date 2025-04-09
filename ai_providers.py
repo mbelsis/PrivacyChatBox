@@ -271,12 +271,12 @@ def get_openai_response(
     stream: bool = True
 ) -> Union[str, Generator[str, None, None]]:
     """Get response from OpenAI API"""
-    # Get API key from settings
-    api_key = settings.openai_api_key
+    # Get API key from environment variable first, then fallback to settings
+    api_key = os.environ.get("OPENAI_API_KEY", "")
     model = settings.openai_model
     
     if not api_key:
-        return "Error: OpenAI API key not configured in settings"
+        return "Error: OpenAI API key not found in environment variables. Please add it to your .env file or environment variables with the key OPENAI_API_KEY."
     
     # Initialize OpenAI client
     client = openai.OpenAI(api_key=api_key)
@@ -316,12 +316,12 @@ def get_claude_response(
     stream: bool = True
 ) -> Union[str, Generator[str, None, None]]:
     """Get response from Anthropic Claude API"""
-    # Get API key from settings
-    api_key = settings.claude_api_key
+    # Get API key from environment variable first, then fallback to settings
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     model = settings.claude_model
     
     if not api_key:
-        return "Error: Claude API key not configured in settings"
+        return "Error: Claude API key not found in environment variables. Please add it to your .env file or environment variables with the key ANTHROPIC_API_KEY."
     
     # Initialize Anthropic client
     client = Anthropic(api_key=api_key)
@@ -373,12 +373,12 @@ def get_gemini_response(
     stream: bool = True
 ) -> Union[str, Generator[str, None, None]]:
     """Get response from Google Gemini API"""
-    # Get API key from settings
-    api_key = settings.gemini_api_key
+    # Get API key from environment variable first, then fallback to settings
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
     model = settings.gemini_model
     
     if not api_key:
-        return "Error: Gemini API key not configured in settings"
+        return "Error: Gemini API key not found in environment variables. Please add it to your .env file or environment variables with the key GOOGLE_API_KEY."
     
     # Configure API
     genai.configure(api_key=api_key)
@@ -391,7 +391,7 @@ def get_gemini_response(
         # Update user's settings in the database
         try:
             with session_scope() as session:
-                user_settings = session.query(Settings).filter(Settings.gemini_api_key == api_key).first()
+                user_settings = session.query(Settings).filter(Settings.user_id == settings.user_id).first()
                 if user_settings:
                     user_settings.gemini_model = model
                     # session_scope handles commit and close

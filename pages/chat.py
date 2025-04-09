@@ -3,6 +3,7 @@ from style import apply_custom_css
 
 # Apply custom CSS to hide default menu
 apply_custom_css()
+import os
 import time
 from datetime import datetime
 import pandas as pd
@@ -564,15 +565,16 @@ def show():
                 response_container = st.empty()
                 response_container.info(f"🔍 Searching the web for: {search_query}")
                 
-                # Check if SerpAPI key is configured
-                if not settings.serpapi_key:
-                    st.warning("⚠️ SerpAPI key not configured. Please add your API key in the settings.")
+                # Check if SerpAPI key is configured in environment variables
+                serpapi_key = os.environ.get("SERPAPI_KEY", "")
+                if not serpapi_key:
+                    st.warning("⚠️ SerpAPI key not found in environment variables. Please add your API key to your .env file or environment variables with the key SERPAPI_KEY.")
                 else:
                     try:
                         # Perform the search
                         search_params = {
                             "q": search_query,
-                            "api_key": settings.serpapi_key,
+                            "api_key": serpapi_key,
                             "num": 5  # Get top 5 results
                         }
                         
@@ -679,13 +681,18 @@ def show():
                 # Get the selected provider
                 selected_provider = st.session_state.get("temp_provider", settings.llm_provider)
                 
+                # Check environment variables for API keys
+                openai_key = os.environ.get("OPENAI_API_KEY", "")
+                claude_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                gemini_key = os.environ.get("GOOGLE_API_KEY", "")
+                
                 # Check provider settings based on the selected provider
-                if selected_provider == "openai" and not settings.openai_api_key:
-                    full_response = "⚠️ OpenAI API key not configured. Please add your API key in the settings."
-                elif selected_provider == "claude" and not settings.claude_api_key:
-                    full_response = "⚠️ Claude API key not configured. Please add your API key in the settings."
-                elif selected_provider == "gemini" and not settings.gemini_api_key:
-                    full_response = "⚠️ Gemini API key not configured. Please add your API key in the settings."
+                if selected_provider == "openai" and not openai_key:
+                    full_response = "⚠️ OpenAI API key not found in environment variables. Please add your API key to your .env file or environment variables with the key OPENAI_API_KEY."
+                elif selected_provider == "claude" and not claude_key:
+                    full_response = "⚠️ Claude API key not found in environment variables. Please add your API key to your .env file or environment variables with the key ANTHROPIC_API_KEY."
+                elif selected_provider == "gemini" and not gemini_key:
+                    full_response = "⚠️ Gemini API key not found in environment variables. Please add your API key to your .env file or environment variables with the key GOOGLE_API_KEY."
                 elif selected_provider == "local" and not settings.local_model_path:
                     full_response = "⚠️ Local model path not configured. Please add a model path in the settings."
                 else:
