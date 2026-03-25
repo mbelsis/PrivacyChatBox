@@ -1,11 +1,35 @@
 import streamlit as st
 import os
 from datetime import datetime, timedelta
+from typing import Optional
+from dotenv import load_dotenv
 from database import get_session, session_scope
 from models import User, Settings
 from sqlalchemy.exc import IntegrityError
-# Import hash_password from utils_auth instead
-from utils_auth import hash_password
+from utils_auth import hash_password, verify_password, is_legacy_sha256_hash
+
+load_dotenv()
+
+DEFAULT_BOOTSTRAP_ADMIN_USERNAME = os.environ.get("DEFAULT_ADMIN_USERNAME", "admin").strip() or "admin"
+DEFAULT_BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "admin").strip() or "admin"
+ALLOW_SELF_REGISTRATION = os.environ.get("ALLOW_SELF_REGISTRATION", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_bootstrap_account(username: str) -> bool:
+    """Return True when the username matches the bootstrap admin account."""
+    return username == DEFAULT_BOOTSTRAP_ADMIN_USERNAME
+
+
+def is_using_bootstrap_password(user: User) -> bool:
+    """Return True when the bootstrap account still uses the bootstrap password."""
+    return is_bootstrap_account(user.username) and verify_password(DEFAULT_BOOTSTRAP_ADMIN_PASSWORD, user.password)
+
+
+def validate_password_strength(password: str) -> Optional[str]:
+    """Return an error message when a password is too weak."""
+    if len(password) < 8:
+        return "Password must be at least 8 characters long."
+    return None
 
 def init_auth():
     """Initialize authentication system"""
@@ -24,14 +48,14 @@ def init_auth():
             st.error("Unable to connect to database. Please try again later.")
             return
             
-        # Create admin user if it doesn't exist
-        admin_exists = session.query(User).filter(User.username == "admin").first()
+        # Create the bootstrap admin user if it doesn't exist.
+        admin_exists = session.query(User).filter(User.username == DEFAULT_BOOTSTRAP_ADMIN_USERNAME).first()
         
         if not admin_exists:
-            # Create admin user with default password "admin"
+            # Create bootstrap admin user with the configured bootstrap password.
             admin_user = User(
-                username="admin",
-                password=hash_password("admin"),
+                username=DEFAULT_BOOTSTRAP_ADMIN_USERNAME,
+                password=hash_password(DEFAULT_BOOTSTRAP_ADMIN_PASSWORD),
                 role="admin"
             )
             session.add(admin_user)
@@ -57,18 +81,15 @@ def init_auth():
             )
             session.add(default_settings)
             
-            try:
-                session.commit()
-                st.sidebar.success("Admin user created with default password 'admin'")
-            except IntegrityError:
-                session.rollback()
+            st.sidebar.warning(
+                f"Bootstrap admin '{DEFAULT_BOOTSTRAP_ADMIN_USERNAME}' created. Change its password immediately."
+            )
 
 # hash_password is now imported from utils_auth.py
 
 def authenticate(username, password):
     """Authenticate a user"""
     if not username or not password:
-        print(f"Authentication failed: Empty username or password")
         return False, None, None
     
     try:
@@ -76,33 +97,37 @@ def authenticate(username, password):
             user = session.query(User).filter(User.username == username).first()
             
             if not user:
-                print(f"Authentication failed: User '{username}' not found")
                 return False, None, None
                 
-            hashed_password = hash_password(password)
-            if user.password == hashed_password:
+            if verify_password(password, user.password):
+                if is_legacy_sha256_hash(user.password):
+                    user.password = hash_password(password)
+
                 # Store user info in session state
                 st.session_state.user_info = {
                     "user_id": user.id,
                     "username": user.username,
                     "role": user.role,
-                    "exp": (datetime.utcnow() + timedelta(days=30)).isoformat()
+                    "exp": (datetime.utcnow() + timedelta(days=30)).isoformat(),
+                    "must_change_password": is_using_bootstrap_password(user)
                 }
                 
-                print(f"Authentication successful for user: {username}")
                 return True, user.id, user.role
-            else:
-                print(f"Authentication failed: Password mismatch for user '{username}'")
-                print(f"Expected: {user.password}")
-                print(f"Received: {hashed_password}")
     except Exception as e:
         print(f"Authentication error: {str(e)}")
     
     return False, None, None
 
-def create_user(username, password, role="user"):
+def create_user(username, password, role="user", allow_when_registration_disabled: bool = False):
     """Create a new user"""
     if not username or not password:
+        return False
+
+    if role == "user" and not ALLOW_SELF_REGISTRATION and not allow_when_registration_disabled:
+        return False
+
+    password_error = validate_password_strength(password)
+    if password_error:
         return False
     
     # First, check if MS DLP columns exist in the database
@@ -123,8 +148,6 @@ def create_user(username, password, role="user"):
                 
                 # If DLP columns don't exist, run the migration
                 if 'enable_ms_dlp' not in columns or 'ms_dlp_sensitivity_threshold' not in columns:
-                    session.close()
-                    
                     # Import and run the migration
                     from migration_add_dlp_columns import run_migration
                     run_migration()
@@ -133,8 +156,6 @@ def create_user(username, password, role="user"):
                 if ('local_model_context_size' not in columns or 
                     'local_model_gpu_layers' not in columns or 
                     'local_model_temperature' not in columns):
-                    session.close()
-                    
                     # Import and run the migration
                     from migration_add_local_llm_columns import run_migration
                     run_migration()
@@ -161,7 +182,6 @@ def create_user(username, password, role="user"):
             
             # Create settings dictionary with all required fields
             settings_dict = {
-                "user_id": new_user.id,
                 "llm_provider": "openai",
                 "ai_character": "assistant",
                 "openai_api_key": "",
@@ -204,6 +224,7 @@ def create_user(username, password, role="user"):
             
             # Create and add settings
             default_settings = Settings(**settings_dict)
+            new_user.settings = default_settings
             session.add(default_settings)
             
             return True
@@ -264,6 +285,10 @@ def update_user_role(user_id, new_role):
 def update_user_password(user_id, new_password):
     """Update a user's password"""
     if not user_id or not new_password:
+        return False
+
+    password_error = validate_password_strength(new_password)
+    if password_error:
         return False
     
     with session_scope() as session:

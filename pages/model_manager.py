@@ -10,6 +10,11 @@ from typing import Dict, Any, Optional, Tuple
 import database
 from models import User, Settings
 import model_utils
+from page_logic import (
+    build_local_model_config_payload,
+    get_local_model_settings_snapshot,
+    merge_selected_model_snapshot,
+)
 import test_local_llm
 from shared_sidebar import create_sidebar
 from style import apply_custom_css
@@ -40,14 +45,7 @@ def show():
         try:
             user = session.query(User).filter(User.id == user_id).first()
             if user and user.settings:
-                # Make a copy of the settings to avoid detached instance errors
-                user_settings = {
-                    "local_model_path": user.settings.local_model_path,
-                    "local_model_context_size": user.settings.local_model_context_size or 2048,
-                    "local_model_gpu_layers": user.settings.local_model_gpu_layers or -1,
-                    "local_model_temperature": user.settings.local_model_temperature or 0.7,
-                    "disable_scan_for_local_model": user.settings.disable_scan_for_local_model if user.settings.disable_scan_for_local_model is not None else True
-                }
+                user_settings = get_local_model_settings_snapshot(user.settings)
         except Exception as e:
             st.error(f"Error retrieving user settings: {str(e)}")
     
@@ -68,8 +66,9 @@ def show():
                     user = session.query(User).filter(User.id == user_id).first()
                     if user and user.settings:
                         user.settings.local_model_path = selected_model
-                        session.commit()
+                        user_settings = merge_selected_model_snapshot(user_settings, selected_model, user.settings)
                         st.success(f"Local model path updated to: {selected_model}")
+                        st.rerun()
                     else:
                         st.error("Could not update settings. Please try again.")
                 except Exception as e:
@@ -170,11 +169,14 @@ def show():
                     try:
                         user = session.query(User).filter(User.id == user_id).first()
                         if user and user.settings:
-                            user.settings.local_model_context_size = context_size
-                            user.settings.local_model_gpu_layers = gpu_layers
-                            user.settings.local_model_temperature = temperature
-                            user.settings.disable_scan_for_local_model = bypass_privacy
-                            session.commit()
+                            config_payload = build_local_model_config_payload(
+                                context_size=context_size,
+                                gpu_layers=gpu_layers,
+                                temperature=temperature,
+                                bypass_privacy=bypass_privacy,
+                            )
+                            for key, value in config_payload.items():
+                                setattr(user.settings, key, value)
                             st.success("Local LLM configuration saved successfully!")
                         else:
                             st.error("Could not update settings. Please try again.")

@@ -1,7 +1,6 @@
 import streamlit as st
 from style import apply_custom_css
 import os
-import json
 
 # Apply custom CSS to hide default menu
 apply_custom_css()
@@ -12,6 +11,13 @@ from models import Settings
 from ai_providers import get_available_models
 from utils import update_user_settings
 from privacy_scanner import STANDARD_PATTERNS, STRICT_PATTERNS, DEFAULT_PATTERNS
+from auth import update_user_password, validate_password_strength
+from page_logic import (
+    build_privacy_settings_payload,
+    build_settings_snapshot,
+    normalize_custom_patterns,
+    validate_custom_patterns,
+)
 import shared_sidebar
 
 def show():
@@ -34,18 +40,27 @@ def show():
     
     # Get user settings
     session = get_session()
-    settings = session.query(Settings).filter(Settings.user_id == user_id).first()
+    if not session:
+        st.error("Unable to load settings. Please try again later.")
+        return
+
+    settings_row = session.query(Settings).filter(Settings.user_id == user_id).first()
+    settings = build_settings_snapshot(settings_row)
     session.close()
     
     if not settings:
         st.error("User settings not found. Please contact an administrator.")
         return
+
+    if st.session_state.get("must_change_password"):
+        st.warning("This account is still using the bootstrap password. Change it now.")
     
     # Create tabs for different settings categories
-    ai_tab, privacy_tab, custom_tab, config_tab = st.tabs([
+    ai_tab, privacy_tab, custom_tab, account_tab, config_tab = st.tabs([
         "AI Models", 
         "Privacy Settings", 
         "Custom Patterns",
+        "Account",
         "Environment Config"
     ])
     
@@ -410,12 +425,12 @@ def show():
         if st.button("Save Privacy Settings"):
             success = update_user_settings(
                 user_id,
-                {
-                    "scan_enabled": scan_enabled,
-                    "scan_level": scan_level,
-                    "auto_anonymize": auto_anonymize,
-                    "disable_scan_for_local_model": disable_scan_for_local_model
-                }
+                build_privacy_settings_payload(
+                    scan_enabled=scan_enabled,
+                    scan_level=scan_level,
+                    auto_anonymize=auto_anonymize,
+                    disable_scan_for_local_model=disable_scan_for_local_model
+                )
             )
             
             if success:
@@ -434,11 +449,11 @@ def show():
         """)
         
         # Get existing custom patterns
-        custom_patterns = settings.get_custom_patterns()
+        custom_patterns = normalize_custom_patterns(settings.custom_patterns)
         
         # Initialize session state for patterns if it doesn't exist
         if "custom_patterns" not in st.session_state:
-            st.session_state.custom_patterns = custom_patterns.copy() if custom_patterns else []
+            st.session_state.custom_patterns = [pattern.copy() for pattern in custom_patterns] if custom_patterns else []
         
         # Function to add a new pattern
         def add_pattern():
@@ -512,11 +527,12 @@ def show():
         
         # Update settings if Save button is clicked
         if st.button("Save Custom Patterns"):
-            # Validate patterns
-            valid_patterns = []
-            for pattern in st.session_state.custom_patterns:
-                if pattern["name"] and pattern["pattern"]:
-                    valid_patterns.append(pattern)
+            valid_patterns, invalid_patterns = validate_custom_patterns(st.session_state.custom_patterns)
+
+            if invalid_patterns:
+                for invalid_pattern in invalid_patterns:
+                    st.error(f"Invalid regex: {invalid_pattern}")
+                return
             
             success = update_user_settings(
                 user_id,
@@ -526,9 +542,38 @@ def show():
             )
             
             if success:
+                st.session_state.custom_patterns = [pattern.copy() for pattern in valid_patterns]
                 st.success("Custom patterns saved.")
+                st.rerun()
             else:
                 st.error("Failed to save custom patterns.")
+
+    # Account tab
+    with account_tab:
+        st.subheader("Account Security")
+        st.write("Update your password for this account.")
+
+        new_password = st.text_input("New Password", type="password", key="settings_new_password")
+        confirm_password = st.text_input("Confirm New Password", type="password", key="settings_confirm_password")
+
+        if st.button("Change Password", key="settings_change_password"):
+            if not new_password:
+                st.error("Password is required.")
+            else:
+                password_error = validate_password_strength(new_password)
+                if password_error:
+                    st.error(password_error)
+                elif new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    success = update_user_password(user_id, new_password)
+                    if success:
+                        st.session_state.must_change_password = False
+                        if "user_info" in st.session_state:
+                            st.session_state.user_info["must_change_password"] = False
+                        st.success("Password updated.")
+                    else:
+                        st.error("Failed to update password.")
     
     # Environment Config tab
     with config_tab:

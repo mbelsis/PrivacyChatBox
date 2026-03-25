@@ -4,7 +4,6 @@ services:
   app:
     # Override for development environment
     volumes:
-      - .:/app  # Mount current directory to /app for development
       - ./models:/app/models  # Persist local LLM models
     environment:
       - DEVELOPMENT=true

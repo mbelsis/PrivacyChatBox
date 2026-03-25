@@ -7,6 +7,7 @@ from typing import Optional, Tuple, Dict, Any, List
 import streamlit as st
 from database import get_session, session_scope
 from models import Conversation, Message, File, User, Settings
+from sqlalchemy.sql import func
 
 # Import MS DLP functionality for file sensitivity checking
 # This import is done in a try-except to allow the app to work without MS DLP integration
@@ -20,7 +21,7 @@ def generate_unique_id() -> str:
     """Generate a unique ID for files or conversations"""
     return str(uuid.uuid4())
 
-def save_uploaded_file(uploaded_file) -> Tuple[str, str, int]:
+def save_uploaded_file(uploaded_file, content_override: Optional[bytes] = None) -> Tuple[str, str, int]:
     """
     Save an uploaded file to a temporary location
     
@@ -38,18 +39,27 @@ def save_uploaded_file(uploaded_file) -> Tuple[str, str, int]:
     
     # Generate a unique filename
     unique_id = generate_unique_id()
-    file_extension = os.path.splitext(uploaded_file.name)[1] if "." in uploaded_file.name else ""
+    file_name = getattr(uploaded_file, "name", None)
+    if file_name is None and isinstance(uploaded_file, dict):
+        file_name = uploaded_file.get("name", "uploaded_file")
+    file_name = file_name or "uploaded_file"
+
+    file_extension = os.path.splitext(file_name)[1] if "." in file_name else ""
     unique_filename = f"{unique_id}{file_extension}"
     
     # Full path to save the file
     file_path = os.path.join(temp_dir, unique_filename)
     
     # Save the file
+    file_bytes = content_override if content_override is not None else uploaded_file.getbuffer()
     with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+        f.write(file_bytes)
     
     # Get MIME type and file size
-    mime_type = uploaded_file.type or mimetypes.guess_type(uploaded_file.name)[0] or "application/octet-stream"
+    uploaded_file_type = getattr(uploaded_file, "type", None)
+    if uploaded_file_type is None and isinstance(uploaded_file, dict):
+        uploaded_file_type = uploaded_file.get("mime_type")
+    mime_type = uploaded_file_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
     file_size = os.path.getsize(file_path)
     
     return file_path, mime_type, file_size
@@ -136,7 +146,7 @@ def get_conversations(user_id: int) -> List[Dict[str, Any]]:
         print(f"Error retrieving conversations: {str(e)}")
         return []
 
-def get_conversation(conversation_id: int) -> Optional[Dict[str, Any]]:
+def get_conversation(conversation_id: int, requesting_user_id: Optional[int] = None, allow_admin_access: bool = False) -> Optional[Dict[str, Any]]:
     """
     Get a specific conversation with all its messages
     
@@ -151,12 +161,14 @@ def get_conversation(conversation_id: int) -> Optional[Dict[str, Any]]:
         from sqlalchemy.orm import joinedload
         
         with session_scope() as session:
-            conversation = session.query(Conversation)\
-                .options(
-                    joinedload(Conversation.messages).joinedload(Message.files)
-                )\
-                .filter(Conversation.id == conversation_id)\
-                .first()
+            query = session.query(Conversation).options(
+                joinedload(Conversation.messages).joinedload(Message.files)
+            ).filter(Conversation.id == conversation_id)
+
+            if requesting_user_id is not None and not allow_admin_access:
+                query = query.filter(Conversation.user_id == requesting_user_id)
+
+            conversation = query.first()
             
             if not conversation:
                 return None
@@ -248,14 +260,24 @@ def add_message_to_conversation(
                         user_id = conversation.user_id
                 
                 for uploaded_file in uploaded_files:
-                    file_path, mime_type, file_size = save_uploaded_file(uploaded_file)
+                    content_override = None
+                    original_name = getattr(uploaded_file, "name", "uploaded_file")
+                    if isinstance(uploaded_file, dict):
+                        original_name = uploaded_file.get("name", original_name)
+                        mime_type = uploaded_file.get("mime_type")
+                        content_override = uploaded_file.get("content_bytes")
+                    else:
+                        mime_type = None
+
+                    file_path, detected_mime_type, file_size = save_uploaded_file(uploaded_file, content_override)
+                    mime_type = mime_type or detected_mime_type
                     
                     # Check for Microsoft sensitivity labels if DLP integration is available
                     if MS_DLP_AVAILABLE and user_id and is_dlp_integration_enabled(user_id):
                         file_allowed, dlp_error = scan_file_for_sensitivity(
                             user_id=user_id,
                             file_path=file_path,
-                            file_name=uploaded_file.name,
+                            file_name=original_name,
                             file_mime=mime_type
                         )
                         
@@ -267,7 +289,7 @@ def add_message_to_conversation(
                     # File is allowed, continue with adding it
                     file = File(
                         message_id=message_id,
-                        original_name=uploaded_file.name,
+                        original_name=original_name,
                         path=file_path,
                         mime_type=mime_type,
                         size=file_size,
@@ -282,6 +304,7 @@ def add_message_to_conversation(
             ).first()
             
             if conversation:
+                conversation.updated_at = func.now()
                 # Update conversation title based on first user message
                 if role == "user" and (not conversation.title or conversation.title == "New Conversation"):
                     # Use the first ~30 characters of the message as the title
@@ -293,7 +316,7 @@ def add_message_to_conversation(
         print(f"Error adding message to conversation: {str(e)}")
         return 0, f"Error: {str(e)}"
 
-def delete_conversation(conversation_id: int) -> bool:
+def delete_conversation(conversation_id: int, requesting_user_id: Optional[int] = None, allow_admin_access: bool = False) -> bool:
     """
     Delete a conversation and all its messages
     
@@ -306,9 +329,12 @@ def delete_conversation(conversation_id: int) -> bool:
     try:
         with session_scope() as session:
             # Find conversation
-            conversation = session.query(Conversation).filter(
-                Conversation.id == conversation_id
-            ).first()
+            query = session.query(Conversation).filter(Conversation.id == conversation_id)
+
+            if requesting_user_id is not None and not allow_admin_access:
+                query = query.filter(Conversation.user_id == requesting_user_id)
+
+            conversation = query.first()
             
             if not conversation:
                 return False

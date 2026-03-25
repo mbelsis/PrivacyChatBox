@@ -218,6 +218,26 @@ For a complete step-by-step guide on Docker deployment, configuration, and troub
 - [Docker Setup Guide](docs/docker-setup.md) - Comprehensive instructions for Docker deployment
 - [Docker Guide](docs/Docker_Guide.md) - Detailed reference and advanced configurations
 
+## Testing
+
+Run the automated test suite locally with:
+
+```bash
+python -m pytest tests -q
+```
+
+The current test suite focuses on the highest-risk application logic, including:
+
+- authentication and session expiry
+- conversation access control and deletion
+- privacy scanning and anonymization behavior
+- provider privacy-scan bypass logic
+- PDF export escaping and authorization
+- migration commit behavior
+- history, analytics, and page-level data-shaping helpers
+
+A lightweight GitHub Actions workflow is included at [`.github/workflows/tests.yml`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/.github/workflows/tests.yml) so the same command runs automatically on pushes and pull requests.
+
 ### Initial Setup
 
 **Important:** On first run, the application automatically creates an admin user:

@@ -44,14 +44,14 @@ def apply_custom_css():
         
         /* Fix sidebar width to prevent trembling */
         section[data-testid="stSidebar"] {
-            width: 280px !important;
-            min-width: 280px !important;
-            max-width: 280px !important;
+            width: 18rem !important;
+            min-width: 18rem !important;
+            max-width: 18rem !important;
         }
         
         /* Ensure the sidebar content doesn't cause width fluctuations */
         section[data-testid="stSidebar"] > div {
-            width: 280px !important;
+            width: 18rem !important;
         }
         
         /* Make sidebar buttons more stable */

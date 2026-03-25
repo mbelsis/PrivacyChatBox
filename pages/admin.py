@@ -9,8 +9,18 @@ from datetime import datetime
 # Import custom modules
 from database import get_session, session_scope
 from models import User, Settings, DetectionEvent, Conversation
-from auth import create_user, delete_user, update_user_role, update_user_password
+from auth import create_user, delete_user, update_user_role, update_user_password, is_bootstrap_account, validate_password_strength
+from page_logic import (
+    build_admin_stats_summary,
+    build_admin_privacy_log_rows,
+    build_admin_user_filter_options,
+    build_event_pattern_detail_lines,
+    can_change_user_role,
+    can_delete_user_account,
+    get_admin_count,
+)
 from privacy_scanner import get_detection_events
+from page_logic import build_default_dlp_bulk_update
 from utils import format_detection_events, update_user_settings
 import shared_sidebar
 import azure_auth
@@ -73,6 +83,9 @@ AZURE_CLIENT_SECRET: ********
             
             # Count users with Azure AD connection
             session = get_session()
+            if not session:
+                st.error("Unable to connect to database. Please try again later.")
+                return
             azure_users_count = 0
             all_users = session.query(User).all()
             session.close()
@@ -106,11 +119,7 @@ AZURE_CLIENT_SECRET: ********
             submitted = st.form_submit_button("Update Azure AD Settings")
             
             if submitted:
-                # In a real application, you would update environment variables or a secure configuration store
-                # For this example, we'll just show a success message
-                st.success("Azure AD settings updated! Please restart the application for changes to take effect.")
-                # In a real app, you might want to restart the app or update environment variables
-                # This would often be done through a configuration file or environment variable manager
+                st.warning("These values are not persisted by the application. Set the corresponding environment variables in your deployment, then restart the app.")
     
     # Microsoft DLP tab
     with ms_dlp_tab:
@@ -178,8 +187,7 @@ MS_CLIENT_SECRET: ********
                 submitted = st.form_submit_button("Update Microsoft DLP Settings")
                 
                 if submitted:
-                    # In a real application, you would update environment variables or a secure configuration store
-                    st.success("Microsoft DLP settings updated! Please restart the application for changes to take effect.")
+                    st.warning("These values are not persisted by the application. Set the corresponding environment variables in your deployment, then restart the app.")
             
             # Organization-wide DLP settings section
             st.write("### Organization-wide DLP Settings")
@@ -264,20 +272,22 @@ MS_CLIENT_SECRET: ********
                 
                 # Form submission
                 if st.form_submit_button("Save Default DLP Settings"):
-                    if apply_to_all:
+                    bulk_update = build_default_dlp_bulk_update(
+                        enabled=default_enable_dlp,
+                        threshold_value=threshold_value,
+                        apply_to_all=apply_to_all,
+                    )
+                    if bulk_update:
                         # Update all users' settings
                         try:
                             with session_scope() as session:
                                 # Update all users' settings
-                                session.query(Settings).update({
-                                    "enable_ms_dlp": default_enable_dlp,
-                                    "ms_dlp_sensitivity_threshold": threshold_value
-                                })
+                                session.query(Settings).update(bulk_update)
                                 st.success("DLP settings applied to all users successfully.")
                         except Exception as e:
                             st.error(f"Failed to update DLP settings: {str(e)}")
                     else:
-                        st.info("Default settings saved. New users will receive these settings.")
+                        st.warning("Default DLP settings are not persisted separately by the application. Use 'Apply to all users' to save actual changes.")
             
             # Information about Microsoft DLP
             st.info("""
@@ -369,8 +379,17 @@ MS_CLIENT_SECRET: ********
         if st.button("Create User"):
             if not new_username or not new_password:
                 st.error("Username and password are required")
+            elif validate_password_strength(new_password):
+                st.error(validate_password_strength(new_password))
             else:
                 success = create_user(new_username, new_password, role=new_role)
+                if not success and new_role == "user":
+                    success = create_user(
+                        new_username,
+                        new_password,
+                        role=new_role,
+                        allow_when_registration_disabled=True
+                    )
                 if success:
                     st.success(f"User '{new_username}' created successfully")
                     st.rerun()
@@ -415,8 +434,17 @@ MS_CLIENT_SECRET: ********
         )
         
         if st.button("Update Role"):
-            if selected_user_id == user_id and new_role != "admin":
-                st.error("You cannot remove your own admin privileges")
+            target_user = next((user for user in users if user["id"] == selected_user_id), None)
+            admin_count = get_admin_count(users)
+            allowed, error_message = can_change_user_role(
+                acting_user_id=user_id,
+                target_user=target_user,
+                new_role=new_role,
+                admin_count=admin_count,
+                is_bootstrap_account_fn=is_bootstrap_account,
+            )
+            if not allowed:
+                st.error(error_message)
             else:
                 success = update_user_role(selected_user_id, new_role)
                 if success:
@@ -442,6 +470,8 @@ MS_CLIENT_SECRET: ********
                 st.error("Password cannot be empty")
             elif new_password != confirm_password:
                 st.error("Passwords do not match")
+            elif validate_password_strength(new_password):
+                st.error(validate_password_strength(new_password))
             else:
                 success = update_user_password(change_pw_user_id, new_password)
                 if success:
@@ -459,8 +489,16 @@ MS_CLIENT_SECRET: ********
         delete_user_id = user_options[delete_user_display]
         
         if st.button("Delete User"):
-            if delete_user_id == user_id:
-                st.error("You cannot delete your own account")
+            protected_user = next((user for user in users if user["id"] == delete_user_id), None)
+            admin_count = get_admin_count(users)
+            allowed, error_message = can_delete_user_account(
+                acting_user_id=user_id,
+                target_user=protected_user,
+                admin_count=admin_count,
+                is_bootstrap_account_fn=is_bootstrap_account,
+            )
+            if not allowed:
+                st.error(error_message)
             else:
                 # Confirm deletion
                 st.warning(f"Are you sure you want to delete user '{delete_user_display.split(' (ID:')[0]}'? This action cannot be undone.")
@@ -530,17 +568,25 @@ MS_CLIENT_SECRET: ********
         except Exception as e:
             st.error(f"Error loading statistics: {str(e)}")
         
+        stats_summary = build_admin_stats_summary(
+            total_users=total_users,
+            total_conversations=total_conversations,
+            total_detection_events=total_detection_events,
+            most_conversations_row=most_conversations_query,
+            latest_event_data=latest_event_data if 'latest_event_data' in locals() else None,
+        )
+
         # Display statistics in columns
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("Total Users", total_users)
+            st.metric("Total Users", stats_summary["total_users"])
         
         with col2:
-            st.metric("Total Conversations", total_conversations)
+            st.metric("Total Conversations", stats_summary["total_conversations"])
         
         with col3:
-            st.metric("Detection Events", total_detection_events)
+            st.metric("Detection Events", stats_summary["total_detection_events"])
         
         # Display additional statistics
         st.markdown("---")
@@ -548,14 +594,14 @@ MS_CLIENT_SECRET: ********
         col1, col2 = st.columns(2)
         
         with col1:
-            if most_conversations_query:
-                username, user_id, count = most_conversations_query
-                st.write(f"**Most Active User**: {username} ({count} conversations)")
+            if stats_summary["most_active_user"]:
+                most_active = stats_summary["most_active_user"]
+                st.write(f"**Most Active User**: {most_active['username']} ({most_active['conversation_count']} conversations)")
         
         with col2:
-            if latest_event_data:
-                event_time = latest_event_data["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
-                st.write(f"**Latest Detection Event**: {event_time} ({latest_event_data['action']}, {latest_event_data['severity']})")
+            if stats_summary["latest_event"]:
+                latest_event = stats_summary["latest_event"]
+                st.write(f"**Latest Detection Event**: {latest_event['timestamp']} ({latest_event['action']}, {latest_event['severity']})")
     
     # Privacy Logs tab
     with logs_tab:
@@ -591,12 +637,11 @@ MS_CLIENT_SECRET: ********
                 return
             
             # Create filter options using the dictionary data
-            user_filter_options = {f"{user['username']} (ID: {user['id']})": user['id'] for user in users_data}
-            user_filter_options["All Users"] = None
+            user_filter_options = build_admin_user_filter_options(users_data)
             
             selected_user_filter = st.selectbox(
                 "User", 
-                ["All Users"] + [f"{user['username']} (ID: {user['id']})" for user in users_data],
+                list(user_filter_options.keys()),
                 key="log_user_filter"
             )
             selected_user_id_filter = user_filter_options[selected_user_filter]
@@ -642,29 +687,14 @@ MS_CLIENT_SECRET: ********
             st.write(f"Showing {len(formatted_events)} most recent events:")
             
             # Convert to dataframe for display
-            events_data = []
-            
-            for event in formatted_events:
-                # Get username
-                username = ""
-                for user in users_data:
-                    if user["id"] == event["id"]:
-                        username = user["username"]
-                        break
-                
-                events_data.append({
-                    "Timestamp": event["timestamp"],
-                    "Action": event["action"].capitalize(),
-                    "Severity": event["severity"].capitalize(),
-                    "Detections": event["detection_count"],
-                    "File": event["file_names"] if event["file_names"] else "N/A"
-                })
+            events_data = build_admin_privacy_log_rows(formatted_events, users_data)
             
             # Display dataframe
             st.dataframe(
                 pd.DataFrame(events_data),
                 column_config={
                     "Timestamp": st.column_config.Column("Timestamp", width="medium"),
+                    "Username": st.column_config.Column("Username", width="medium"),
                     "Action": st.column_config.Column("Action", width="small"),
                     "Severity": st.column_config.Column("Severity", width="small"),
                     "Detections": st.column_config.Column("Detections", width="small"),
@@ -695,9 +725,8 @@ MS_CLIENT_SECRET: ********
             # Display detected patterns
             st.write("**Detected Patterns**:")
             
-            for pattern_type, matches in selected_event["detected_patterns"].items():
-                st.write(f"- **{pattern_type}**: {', '.join(matches[:3])}" + 
-                       (f" and {len(matches) - 3} more" if len(matches) > 3 else ""))
+            for detail_line in build_event_pattern_detail_lines(selected_event["detected_patterns"]):
+                st.write(detail_line)
         else:
             st.info("No detection events found matching the filters.")
 

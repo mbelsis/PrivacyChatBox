@@ -1,4 +1,5 @@
 import streamlit as st
+import html
 
 def create_sidebar(page_name=""):
     """
@@ -58,7 +59,9 @@ def create_sidebar(page_name=""):
             with col2:
                 st.image("assets/logo.png", width=160)
             # Title already included in the logo
-            st.markdown(f"<div style='text-align:center; margin-bottom:10px;'>Welcome, <b>{st.session_state.username}</b> ({st.session_state.role})</div>", unsafe_allow_html=True)
+            safe_username = html.escape(str(st.session_state.username))
+            safe_role = html.escape(str(st.session_state.role))
+            st.markdown(f"<div style='text-align:center; margin-bottom:10px;'>Welcome, <b>{safe_username}</b> ({safe_role})</div>", unsafe_allow_html=True)
             
             st.markdown("---")
             
@@ -94,11 +97,7 @@ def create_sidebar(page_name=""):
                         if st.button(option["label"], key=button_key, use_container_width=True):
                             st.switch_page(option["path"])
             
-            # Use a fixed height spacer instead of variable <br> tags
-            st.markdown('<div style="height:100px"></div>', unsafe_allow_html=True)
-            
-            # Add theme toggle and logout buttons at the bottom with improved styling
-            st.markdown('<div style="position:fixed; bottom:30px; width:16rem;">', unsafe_allow_html=True)
+            st.markdown("---")
             theme_col, logout_col = st.columns(2)
             
             with theme_col:
@@ -113,15 +112,28 @@ def create_sidebar(page_name=""):
                         # Import toggle_dark_mode function from app.py
                         from app import toggle_dark_mode
                         toggle_dark_mode()
-                    except:
+                    except Exception:
                         st.session_state.dark_mode = not st.session_state.get("dark_mode", False)
                         st.rerun()
             
             with logout_col:
                 logout_key = f"logout_button_{page_name}"
                 if st.button("🚪 Logout", key=logout_key, help="Log out"):
-                    for key in list(st.session_state.keys()):
-                        del st.session_state[key]
+                    keys_to_clear = [
+                        "authenticated",
+                        "username",
+                        "user_id",
+                        "role",
+                        "user_info",
+                        "current_conversation_id",
+                        "conversations",
+                        "must_change_password",
+                        "azure_auth_state",
+                        "azure_token_cache",
+                        "azure_user",
+                        "sidebar_created",
+                    ]
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
                     st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)

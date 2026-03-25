@@ -42,8 +42,8 @@ def test_local_model(model_path: str, prompt: str, n_ctx: int = 2048, n_gpu_laye
         print(f"Model loaded successfully. Generating response to prompt: '{prompt}'")
         
         # Generate response
-        response = model.generate(
-            prompt,
+        response = model.create_completion(
+            prompt=prompt,
             max_tokens=512,
             temperature=0.7,
             stop=["USER:", "\nUSER", "SYSTEM:"],

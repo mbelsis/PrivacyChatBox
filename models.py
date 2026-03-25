@@ -75,7 +75,7 @@ class Settings(Base):
         elif isinstance(self.custom_patterns, str):
             try:
                 return json.loads(self.custom_patterns)
-            except:
+            except Exception:
                 return []
         else:
             return []
@@ -108,7 +108,7 @@ class DetectionEvent(Base):
         elif isinstance(self.detected_patterns, str):
             try:
                 return json.loads(self.detected_patterns)
-            except:
+            except Exception:
                 return {}
         else:
             return {}
@@ -182,7 +182,7 @@ class File(Base):
         elif isinstance(self.scan_result, str):
             try:
                 return json.loads(self.scan_result)
-            except:
+            except Exception:
                 return {}
         else:
             return {}

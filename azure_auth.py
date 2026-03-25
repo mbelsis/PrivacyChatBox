@@ -6,6 +6,7 @@ import msal
 import requests
 from jose import jwt
 import uuid
+import html
 import streamlit as st
 from database import get_session, session_scope
 from models import User, Settings
@@ -96,7 +97,7 @@ def process_azure_user(token_data: Dict[str, Any]) -> bool:
     
     # Get user profile from Microsoft Graph
     headers = {"Authorization": f"Bearer {access_token}"}
-    response = requests.get(ENDPOINT, headers=headers)
+    response = requests.get(ENDPOINT, headers=headers, timeout=15)
     
     if response.status_code != 200:
         print(f"Error getting user profile: {response.status_code}")
@@ -133,13 +134,6 @@ def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tu
     # Use session_scope for better transaction management
     user_id = -1
     user_role = ""
-    
-    # Add columns if they don't exist
-    from sqlalchemy import Column, String
-    if not hasattr(User, 'azure_id'):
-        User.azure_id = Column(String, unique=True, index=True, nullable=True)
-    if not hasattr(User, 'azure_name'):
-        User.azure_name = Column(String, nullable=True)
     
     try:
         with session_scope() as session:
@@ -187,9 +181,6 @@ def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tu
                     user_id = user.id
                     user_role = user.role
             
-            # Commit changes
-            session.commit()
-            
             # Set authentication in session state (outside the with block to avoid detached instance errors)
             if user_id > 0:
                 st.session_state.authenticated = True
@@ -207,9 +198,15 @@ def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tu
 def check_azure_auth_params():
     """Check if Azure AD auth parameters are set in URL"""
     query_params = st.query_params
-    
-    code = query_params.get("code", [None])[0]
-    state = query_params.get("state", [None])[0]
+
+    def get_query_param(name: str) -> Optional[str]:
+        value = query_params.get(name)
+        if isinstance(value, list):
+            return value[0] if value else None
+        return value
+
+    code = get_query_param("code")
+    state = get_query_param("state")
     
     if code and state:
         success = process_auth_code(code, state)
@@ -228,11 +225,12 @@ def show_azure_login_button():
         return
     
     auth_url = get_auth_url()
+    safe_auth_url = html.escape(auth_url, quote=True)
     
     st.markdown(
         f"""
         <div style="margin-top: 20px; text-align: center;">
-            <a href="{auth_url}" target="_self" style="display: inline-block; padding: 12px 20px; background-color: #0078d4; color: white; text-decoration: none; border-radius: 4px; font-weight: 600;">
+            <a href="{safe_auth_url}" target="_self" style="display: inline-block; padding: 12px 20px; background-color: #0078d4; color: white; text-decoration: none; border-radius: 4px; font-weight: 600;">
                 <img src="https://learn.microsoft.com/en-us/azure/active-directory/develop/media/common/microsoft-logo.png" style="height: 20px; vertical-align: middle; margin-right: 10px;" />
                 Sign in with Microsoft
             </a>

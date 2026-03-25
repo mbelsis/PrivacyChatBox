@@ -18,8 +18,8 @@ COPY pyproject.toml /app/
 RUN pip install --no-cache-dir -U pip && \
     pip install --no-cache-dir streamlit anthropic azure-storage-blob google-generativeai \
     google-search-results jose llama-cpp-python msal msgraph-core openai pandas \
-    plotly psycopg2-binary pyjwt python-dotenv python-jose reportlab requests \
-    sqlalchemy tqdm
+    plotly psycopg2-binary pyjwt python-docx python-dotenv python-jose reportlab requests \
+    sqlalchemy tqdm pdfminer-six openpyxl
 
 # Copy application code
 COPY . /app/

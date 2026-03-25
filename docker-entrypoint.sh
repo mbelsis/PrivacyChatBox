@@ -3,7 +3,7 @@ set -e
 
 # Wait for the database to be ready
 echo "Waiting for database to be ready..."
-until PGPASSWORD=$PGPASSWORD psql -h $PGHOST -U $PGUSER -d $PGDATABASE -c '\q'; do
+until PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -c '\q'; do
   echo "Database is unavailable - sleeping"
   sleep 1
 done

@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import time
+from types import SimpleNamespace
 from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime
 import streamlit as st
@@ -30,7 +31,7 @@ DEFAULT_PATTERNS = [
     {"name": "google_api_key", "pattern": r"AIza[0-9A-Za-z\-_]{35}", "level": "standard", "confidence": 0.98},
     
     # Classification terms - Standard level
-    {"name": "classification", "pattern": r"\b(confidential|strictly confidential|secret|internal use only|proprietary|classified)\b", "level": "standard", "confidence": 0.8},
+    {"name": "classification", "pattern": r"\b(strictly confidential|confidential|internal use only|proprietary|classified)\b", "level": "standard", "confidence": 0.7},
     
     # JWT token - Standard level
     {"name": "jwt", "pattern": r"\beyJ[A-Za-z0-9\-_]+?\.eyJ[A-Za-z0-9\-_]+?\.[A-Za-z0-9\-_]+\b", "level": "standard", "confidence": 0.9},
@@ -50,12 +51,12 @@ DEFAULT_PATTERNS = [
     
     # Financial information - Strict level
     {"name": "iban", "pattern": r"\b[A-Z]{2}\d{2}(?:[ ]?[0-9A-Z]){11,30}\b", "level": "strict", "confidence": 0.9},
-    {"name": "bank_account", "pattern": r"\b[0-9]{8,17}\b", "level": "strict", "confidence": 0.75},
+    {"name": "bank_account", "pattern": r"\b[0-9]{8,17}\b", "level": "strict", "confidence": 0.6},
     
     # Regional specific identifiers - Strict level
     {"name": "uk_nino", "pattern": r"\b(?!BG|GB|NK|KN|TN|NT|ZZ)([A-CEGHJ-PR-TW-Z]{2})\d{6}[A-D]\b", "level": "strict", "confidence": 0.9},
-    {"name": "greek_amka", "pattern": r"\b\d{11}\b", "level": "strict", "confidence": 0.85},
-    {"name": "greek_tax_id", "pattern": r"\b\d{9}\b", "level": "strict", "confidence": 0.85}
+    {"name": "greek_amka", "pattern": r"\b\d{11}\b", "level": "strict", "confidence": 0.6},
+    {"name": "greek_tax_id", "pattern": r"\b\d{9}\b", "level": "strict", "confidence": 0.6}
 ]
 
 # Precompile all patterns at module load time
@@ -77,7 +78,7 @@ STRICT_PATTERNS.update({pattern["name"]: pattern["pattern"] for pattern in DEFAU
 COMPILED_STANDARD_PATTERNS = {name: COMPILED_PATTERNS[name] for name in STANDARD_PATTERNS.keys()}
 COMPILED_STRICT_PATTERNS = {name: COMPILED_PATTERNS[name] for name in STRICT_PATTERNS.keys()}
 
-def get_user_settings(user_id: int) -> Optional[Settings]:
+def get_user_settings(user_id: int) -> Optional[SimpleNamespace]:
     """Get user settings for privacy scanning"""
     try:
         with session_scope() as session:
@@ -85,14 +86,14 @@ def get_user_settings(user_id: int) -> Optional[Settings]:
             
             # If we found settings, create a copy of important attributes to avoid detached instance errors
             if settings:
-                return Settings(
+                return SimpleNamespace(
                     id=settings.id,
                     user_id=settings.user_id,
                     scan_enabled=settings.scan_enabled,
                     scan_level=settings.scan_level,
                     auto_anonymize=settings.auto_anonymize,
                     disable_scan_for_local_model=settings.disable_scan_for_local_model,
-                    custom_patterns=settings.custom_patterns,
+                    custom_patterns=list(settings.get_custom_patterns()),
                     enable_ms_dlp=getattr(settings, 'enable_ms_dlp', True),
                     ms_dlp_sensitivity_threshold=getattr(settings, 'ms_dlp_sensitivity_threshold', 'confidential')
                 )
@@ -101,7 +102,27 @@ def get_user_settings(user_id: int) -> Optional[Settings]:
         print(f"Error getting user settings: {str(e)}")
         return None
 
-def scan_text(user_id: int, text: str, minimum_confidence: float = 0.7) -> Tuple[bool, Dict[str, List[str]]]:
+
+def log_detection_event(user_id: int, action: str, detected: Dict[str, List[str]], file_names: str = "") -> None:
+    """Persist a single detection event."""
+    if not detected:
+        return
+
+    try:
+        with session_scope() as session:
+            detection_event = DetectionEvent(
+                user_id=user_id,
+                timestamp=datetime.now(),
+                action=action,
+                severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
+                detected_patterns=detected,
+                file_names=file_names
+            )
+            session.add(detection_event)
+    except Exception as e:
+        print(f"Error logging detection event: {str(e)}")
+
+def scan_text(user_id: int, text: str, minimum_confidence: float = 0.7, log_event: bool = True) -> Tuple[bool, Dict[str, List[str]]]:
     """
     Scan text for sensitive information using precompiled regex patterns
     
@@ -132,7 +153,7 @@ def scan_text(user_id: int, text: str, minimum_confidence: float = 0.7) -> Tuple
         compiled_patterns = COMPILED_STANDARD_PATTERNS.copy()
     
     # Add custom patterns if available
-    custom_patterns = settings.get_custom_patterns()
+    custom_patterns = settings.custom_patterns or []
     is_strict_mode = settings.scan_level == "strict"
     
     # Compile and add custom patterns
@@ -169,29 +190,16 @@ def scan_text(user_id: int, text: str, minimum_confidence: float = 0.7) -> Tuple
             continue
             
         # Use the precompiled regex for faster matching
-        matches = pattern_info["regex"].findall(text)
+        matches = [match.group(0) for match in pattern_info["regex"].finditer(text)]
         if matches:
-            detected[pattern_name] = matches
+            detected[pattern_name] = list(dict.fromkeys(matches))
     
     # Determine if sensitive information was found
     sensitive_found = len(detected) > 0
     
     # Log detection event if sensitive information was found
-    if sensitive_found:
-        try:
-            with session_scope() as session:
-                detection_event = DetectionEvent(
-                    user_id=user_id,
-                    timestamp=datetime.now(),
-                    action="scan",
-                    severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-                    detected_patterns=detected,
-                    file_names=""
-                )
-                session.add(detection_event)
-                # session_scope handles commit and close
-        except Exception as e:
-            print(f"Error logging detection event: {str(e)}")
+    if sensitive_found and log_event:
+        log_detection_event(user_id, "scan", detected)
     
     # Optionally log performance metrics
     scan_time = time.time() - start_time
@@ -214,24 +222,11 @@ def scan_file_content(user_id: int, file_content: str, file_name: str) -> Tuple[
             - Boolean indicating if sensitive information was found
             - Dictionary of detected patterns with type as key and list of matches as value
     """
-    sensitive_found, detected = scan_text(user_id, file_content)
+    sensitive_found, detected = scan_text(user_id, file_content, log_event=False)
     
     # Log detection event if sensitive information was found
     if sensitive_found:
-        try:
-            with session_scope() as session:
-                detection_event = DetectionEvent(
-                    user_id=user_id,
-                    timestamp=datetime.now(),
-                    action="scan",
-                    severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-                    detected_patterns=detected,
-                    file_names=file_name
-                )
-                session.add(detection_event)
-                # session_scope handles commit and close
-        except Exception as e:
-            print(f"Error logging file detection event: {str(e)}")
+        log_detection_event(user_id, "scan", detected, file_name)
     
     return sensitive_found, detected
 
@@ -260,7 +255,7 @@ def scan_file_path(user_id: int, file_path: str, file_name: str, file_type: str)
             return False, {}
         
         # Use our normal scan_text function
-        return scan_text(user_id, text_chunk)
+        return scan_text(user_id, text_chunk, log_event=False)
     
     # Process the file in chunks with parallel processing
     sensitive_found, detected, processing_time = file_processor.scan_file_chunks(
@@ -273,20 +268,7 @@ def scan_file_path(user_id: int, file_path: str, file_name: str, file_type: str)
     
     # Log detection event if sensitive information was found
     if sensitive_found:
-        try:
-            with session_scope() as session:
-                detection_event = DetectionEvent(
-                    user_id=user_id,
-                    timestamp=datetime.now(),
-                    action="scan",
-                    severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-                    detected_patterns=detected,
-                    file_names=file_name
-                )
-                session.add(detection_event)
-                # session_scope handles commit and close
-        except Exception as e:
-            print(f"Error logging file detection event: {str(e)}")
+        log_detection_event(user_id, "scan", detected, file_name)
     
     # Log performance metrics
     print(f"File scan completed in {processing_time:.4f}s: found {len(detected)} pattern types in {file_name}")
@@ -313,98 +295,106 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
     if not sensitive_found or not settings:
         return text, detected
     
-    # Anonymize each detected pattern
-    anonymized_text = text
-    for pattern_type, matches in detected.items():
-        for match in matches:
+    def replacement_for(pattern_type: str, match: str) -> str:
             if pattern_type == "credit_card":
                 # Replace with "XXXX-XXXX-XXXX-1234" (keeping last 4 digits if possible)
                 last_four = match[-4:] if len(match) >= 4 else "1234"
-                replacement = f"XXXX-XXXX-XXXX-{last_four}"
+                return f"XXXX-XXXX-XXXX-{last_four}"
             elif pattern_type == "ssn":
                 # Replace with "XXX-XX-1234" (keeping last 4 digits if possible)
                 last_four = match[-4:] if len(match) >= 4 else "1234"
-                replacement = f"XXX-XX-{last_four}"
+                return f"XXX-XX-{last_four}"
             elif pattern_type == "email":
                 # Replace with "email@redacted.com"
-                replacement = "email@redacted.com"
+                return "email@redacted.com"
             elif pattern_type == "phone_number" or pattern_type == "msisdn":
                 # Replace with "(XXX) XXX-1234" (keeping last 4 digits if possible)
                 last_four = match[-4:] if len(match) >= 4 else "1234"
-                replacement = f"(XXX) XXX-{last_four}"
+                return f"(XXX) XXX-{last_four}"
             elif pattern_type == "ip_address":
                 # Replace with "XXX.XXX.XXX.XXX"
-                replacement = "XXX.XXX.XXX.XXX"
+                return "XXX.XXX.XXX.XXX"
             elif pattern_type == "date_of_birth":
                 # Replace with "XX/XX/XXXX"
-                replacement = "XX/XX/XXXX"
+                return "XX/XX/XXXX"
             elif pattern_type == "address":
                 # Replace with "[REDACTED ADDRESS]"
-                replacement = "[REDACTED ADDRESS]"
+                return "[REDACTED ADDRESS]"
             elif pattern_type == "password":
                 # Replace with "password: [REDACTED]"
-                replacement = "password: [REDACTED]"
-            elif pattern_type == "api_key" or "key" in pattern_type or "token" in pattern_type:
+                return "password: [REDACTED]"
+            elif pattern_type == "api_key" or pattern_type.endswith("_key") or pattern_type.endswith("_token") or pattern_type in {"token", "access_token"}:
                 # Replace with "[REDACTED API KEY]"
-                replacement = "[REDACTED API KEY]"
+                return "[REDACTED API KEY]"
             elif pattern_type == "name":
                 # Replace with "[REDACTED NAME]"
-                replacement = "[REDACTED NAME]"
+                return "[REDACTED NAME]"
             elif pattern_type == "url":
                 # Replace with "[REDACTED URL]"
-                replacement = "[REDACTED URL]"
+                return "[REDACTED URL]"
             elif pattern_type == "uuid":
                 # Replace with "[REDACTED UUID]"
-                replacement = "[REDACTED UUID]"
+                return "[REDACTED UUID]"
             elif pattern_type == "passport":
                 # Replace with "[REDACTED PASSPORT]"
-                replacement = "[REDACTED PASSPORT]"
+                return "[REDACTED PASSPORT]"
             elif pattern_type == "bank_account" or pattern_type == "iban":
                 # Replace with "[REDACTED BANK ACCOUNT]"
-                replacement = "[REDACTED BANK ACCOUNT]"
+                return "[REDACTED BANK ACCOUNT]"
             elif pattern_type == "aws_access_key" or pattern_type == "aws_secret_key":
                 # Replace with "[REDACTED AWS KEY]"
-                replacement = "[REDACTED AWS KEY]"
+                return "[REDACTED AWS KEY]"
             elif pattern_type == "google_api_key":
                 # Replace with "[REDACTED GOOGLE API KEY]"
-                replacement = "[REDACTED GOOGLE API KEY]"
+                return "[REDACTED GOOGLE API KEY]"
             elif pattern_type == "classification":
                 # Replace with "[CLASSIFIED DOCUMENT]"
-                replacement = "[CLASSIFIED DOCUMENT]"
+                return "[CLASSIFIED DOCUMENT]"
             elif pattern_type == "jwt":
                 # Replace with "[REDACTED JWT TOKEN]"
-                replacement = "[REDACTED JWT TOKEN]"
+                return "[REDACTED JWT TOKEN]"
             elif pattern_type == "private_key":
                 # Replace with "[REDACTED PRIVATE KEY]"
-                replacement = "[REDACTED PRIVATE KEY]"
+                return "[REDACTED PRIVATE KEY]"
             elif pattern_type == "uk_nino":
                 # Replace with "[REDACTED UK NINO]"
-                replacement = "[REDACTED UK NINO]"
+                return "[REDACTED UK NINO]"
             elif pattern_type == "greek_amka" or pattern_type == "greek_tax_id":
                 # Replace with "[REDACTED GREEK ID]"
-                replacement = "[REDACTED GREEK ID]"
-            else:
-                # Generic replacement for custom patterns
-                replacement = f"[REDACTED {pattern_type.upper()}]"
-            
-            # Replace in text
-            anonymized_text = anonymized_text.replace(match, replacement)
+                return "[REDACTED GREEK ID]"
+            return f"[REDACTED {pattern_type.upper()}]"
+
+    replacement_spans = []
+    for pattern_type, matches in detected.items():
+        for match in sorted(set(matches), key=len, reverse=True):
+            start = 0
+            while True:
+                index = text.find(match, start)
+                if index == -1:
+                    break
+                replacement_spans.append((index, index + len(match), replacement_for(pattern_type, match)))
+                start = index + len(match)
+
+    replacement_spans.sort(key=lambda item: (item[0], -(item[1] - item[0])))
+    merged_spans = []
+    last_end = -1
+    for start, end, replacement in replacement_spans:
+        if start < last_end:
+            continue
+        merged_spans.append((start, end, replacement))
+        last_end = end
+
+    parts = []
+    cursor = 0
+    for start, end, replacement in merged_spans:
+        parts.append(text[cursor:start])
+        parts.append(replacement)
+        cursor = end
+    parts.append(text[cursor:])
+    anonymized_text = "".join(parts)
     
     # Log anonymization event
-    try:
-        with session_scope() as session:
-            detection_event = DetectionEvent(
-                user_id=user_id,
-                timestamp=datetime.now(),
-                action="anonymize",
-                severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-                detected_patterns=detected,
-                file_names=""
-            )
-            session.add(detection_event)
-            # session_scope handles commit and close
-    except Exception as e:
-        print(f"Error logging anonymization event: {str(e)}")
+    log_detection_event(user_id, "anonymize", detected)
     
     return anonymized_text, detected
 

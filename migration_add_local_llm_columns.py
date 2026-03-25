@@ -15,7 +15,6 @@ def run_migration():
     Add local LLM configuration columns to the Settings table
     """
     print("Starting migration to add local LLM configuration columns to the Settings table...")
-    print(f"Using DATABASE_URL: {os.environ.get('DATABASE_URL', 'Not set')[:10]}...")
     
     # Initialize database with explicit timeout
     try:

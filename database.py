@@ -2,11 +2,12 @@ import os
 import time
 import sqlalchemy
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import declarative_base, sessionmaker
 import streamlit as st
 from contextlib import contextmanager
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Load database connection details from environment variables
 DB_HOST = os.environ.get("PGHOST", "localhost")
@@ -63,13 +64,8 @@ def init_db():
             # We'll import the models here to avoid circular imports
             from models import User, Settings, DetectionEvent, Conversation, Message, File
             
-            # Check if tables exist before creating them
-            inspector = sqlalchemy.inspect(engine)
-            existing_tables = inspector.get_table_names()
-            
-            if 'users' not in existing_tables:
-                # If tables don't exist, create them
-                Base.metadata.create_all(engine)
+            # Create any missing tables in the schema.
+            Base.metadata.create_all(engine)
             
             return True
         except Exception as e:
@@ -79,7 +75,7 @@ def init_db():
             if retry_count < MAX_RETRIES:
                 time.sleep(RETRY_DELAY)
             else:
-                st.error(f"Database connection error after {MAX_RETRIES} attempts: {str(e)}")
+                st.error(f"Database connection error after {MAX_RETRIES} attempts.")
                 return False
     
     return False
@@ -98,7 +94,7 @@ def get_session():
         # Test the session with a simple query
         session.execute(sqlalchemy.text("SELECT 1"))
         return session
-    except:
+    except Exception:
         session.close()
         raise
 

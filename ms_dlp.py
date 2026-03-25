@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import msal
 import requests
 from datetime import datetime
+from threading import Lock
 import streamlit as st
 from database import get_session, session_scope
 from models import User, Settings, DetectionEvent
@@ -31,6 +32,7 @@ SENSITIVITY_LEVELS = {
 
 # Cache for MS Graph authentication tokens
 TOKEN_CACHE = {}
+TOKEN_CACHE_LOCK = Lock()
 
 def get_ms_settings() -> Dict[str, str]:
     """Get Microsoft settings from environment variables"""
@@ -68,10 +70,11 @@ def get_ms_graph_token() -> Optional[str]:
     
     # Check if we have a valid cached token
     cache_key = f"{settings['MS_CLIENT_ID']}_{settings['MS_TENANT_ID']}"
-    if cache_key in TOKEN_CACHE:
-        token_info = TOKEN_CACHE[cache_key]
-        if token_info["expires_at"] > datetime.now().timestamp():
-            return token_info["access_token"]
+    with TOKEN_CACHE_LOCK:
+        if cache_key in TOKEN_CACHE:
+            token_info = TOKEN_CACHE[cache_key]
+            if token_info["expires_at"] > datetime.now().timestamp():
+                return token_info["access_token"]
     
     # No valid token in cache, get a new one
     authority = f"https://login.microsoftonline.com/{settings['MS_TENANT_ID']}"
@@ -87,10 +90,11 @@ def get_ms_graph_token() -> Optional[str]:
     
     if "access_token" in result:
         # Cache the token
-        TOKEN_CACHE[cache_key] = {
-            "access_token": result["access_token"],
-            "expires_at": datetime.now().timestamp() + result["expires_in"]
-        }
+        with TOKEN_CACHE_LOCK:
+            TOKEN_CACHE[cache_key] = {
+                "access_token": result["access_token"],
+                "expires_at": datetime.now().timestamp() + result["expires_in"]
+            }
         return result["access_token"]
     else:
         logger.error(f"Error getting Microsoft Graph token: {result.get('error')}")
@@ -372,10 +376,7 @@ def is_dlp_integration_enabled(user_id: int) -> bool:
         # If the required columns don't exist, run the migration
         if 'enable_ms_dlp' not in columns or 'ms_dlp_sensitivity_threshold' not in columns:
             logger.warning("DLP columns don't exist in Settings table, running migration...")
-            
-            # Close the current session before modifying the schema
-            session.close()
-            
+
             # Run the migration to add the columns
             from migration_add_dlp_columns import run_migration
             run_migration()

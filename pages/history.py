@@ -5,14 +5,19 @@ from style import apply_custom_css
 apply_custom_css()
 import pandas as pd
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Import custom modules
 from database import get_session
-from models import Conversation, Message, File, User
+from models import Conversation, Message, File, User, DetectionEvent
 from utils import delete_conversation, get_conversation
 from pdf_export import export_conversation_to_pdf
 import shared_sidebar
+from page_logic import (
+    build_history_conversation_rows,
+    build_privacy_alert_index,
+    conversation_has_privacy_alert,
+)
 
 def show():
     """Main function to display the chat history interface"""
@@ -37,10 +42,15 @@ def show():
     
     # Create tabs for History and Analytics
     history_tab, analytics_tab = st.tabs(["📜 History", "📊 Analytics"])
+    conversations = []
+    users = {}
     
     with history_tab:
         # Get conversations based on user role
         session = get_session()
+        if not session:
+            st.error("Unable to connect to database. Please try again later.")
+            return
         
         if is_admin:
             # For admins, show all conversations with user information
@@ -50,9 +60,19 @@ def show():
             users = {user.id: user.username for user in session.query(User).all()}
             
             # Get all conversations
-            conversations = session.query(Conversation).order_by(
+            conversation_rows = session.query(Conversation).order_by(
                 Conversation.updated_at.desc()
             ).all()
+            conversations = [
+                {
+                    "id": conv.id,
+                    "user_id": conv.user_id,
+                    "title": conv.title,
+                    "created_at": conv.created_at,
+                    "updated_at": conv.updated_at,
+                }
+                for conv in conversation_rows
+            ]
             
             # Add filtering options for admins
             st.write("Filter conversations:")
@@ -72,7 +92,7 @@ def show():
                 # Apply user filter if selected
                 selected_user_id = user_options.get(selected_user)
                 if selected_user_id is not None:
-                    conversations = [c for c in conversations if c.user_id == selected_user_id]
+                    conversations = [c for c in conversations if c["user_id"] == selected_user_id]
             
             with filter_col2:
                 # Date range filter
@@ -93,12 +113,22 @@ def show():
                     elif selected_date_range == "Past Month":
                         date_threshold = now - timedelta(days=30)
                     
-                    conversations = [c for c in conversations if c.created_at >= date_threshold]
+                    conversations = [c for c in conversations if c["created_at"] >= date_threshold]
         else:
             # For regular users, show only their conversations
-            conversations = session.query(Conversation).filter(
+            conversation_rows = session.query(Conversation).filter(
                 Conversation.user_id == user_id
             ).order_by(Conversation.updated_at.desc()).all()
+            conversations = [
+                {
+                    "id": conv.id,
+                    "user_id": conv.user_id,
+                    "title": conv.title,
+                    "created_at": conv.created_at,
+                    "updated_at": conv.updated_at,
+                }
+                for conv in conversation_rows
+            ]
             
             if not conversations:
                 st.info("You don't have any conversations yet. Start chatting to create one!")
@@ -165,22 +195,27 @@ def show():
                 now = datetime.now()
                 if selected_date_range == "Today":
                     date_threshold = datetime(now.year, now.month, now.day)
-                    date_filter = DetectionEvent.timestamp >= date_threshold
+                    detection_date_filter = DetectionEvent.timestamp >= date_threshold
+                    conversation_date_filter = Conversation.created_at >= date_threshold
                 elif selected_date_range == "Past Week":
                     date_threshold = now - timedelta(days=7)
-                    date_filter = DetectionEvent.timestamp >= date_threshold
+                    detection_date_filter = DetectionEvent.timestamp >= date_threshold
+                    conversation_date_filter = Conversation.created_at >= date_threshold
                 elif selected_date_range == "Past Month":
                     date_threshold = now - timedelta(days=30)
-                    date_filter = DetectionEvent.timestamp >= date_threshold
+                    detection_date_filter = DetectionEvent.timestamp >= date_threshold
+                    conversation_date_filter = Conversation.created_at >= date_threshold
                 else:
                     # All time
-                    date_filter = True
+                    detection_date_filter = True
+                    conversation_date_filter = True
         else:
             st.subheader("Your Usage Analytics")
             analysis_user_id = user_id
             # Regular users can only see their own data
             user_filter = DetectionEvent.user_id == user_id
-            date_filter = True
+            detection_date_filter = True
+            conversation_date_filter = True
         
         # Initialize analytics metrics
         total_conversations = 0
@@ -194,7 +229,11 @@ def show():
         
         try:
             # Calculate metrics with error handling
-            with get_session() as session:
+            session = get_session()
+            if not session:
+                st.error("Unable to connect to database. Please try again later.")
+                return
+            try:
                 if session:
                     # Create base queries for conversations
                     if analysis_user_id is not None:
@@ -206,19 +245,29 @@ def show():
                         conversation_base_query = session.query(Conversation)
                         detection_base_query = session.query(DetectionEvent)
                     
+                    if conversation_date_filter is not True:
+                        conversation_base_query = conversation_base_query.filter(conversation_date_filter)
+                    if detection_date_filter is not True:
+                        detection_base_query = detection_base_query.filter(detection_date_filter)
+
                     # Count conversations
                     total_conversations = conversation_base_query.count()
                     
                     # Count messages
                     if analysis_user_id is not None:
                         # For a specific user
-                        total_messages = session.query(Message).join(
+                        total_messages_query = session.query(Message).join(
                             Conversation, Message.conversation_id == Conversation.id
-                        ).filter(Conversation.user_id == analysis_user_id).count()
+                        ).filter(Conversation.user_id == analysis_user_id)
                     else:
                         # For all users
-                        total_messages = session.query(Message).count()
-                    
+                        total_messages_query = session.query(Message).join(
+                            Conversation, Message.conversation_id == Conversation.id
+                        )
+                    if conversation_date_filter is not True:
+                        total_messages_query = total_messages_query.filter(conversation_date_filter)
+                    total_messages = total_messages_query.count()
+
                     # Count detection events
                     total_detection_events = detection_base_query.count()
                     
@@ -230,6 +279,8 @@ def show():
                     
                     if analysis_user_id is not None:
                         severity_query = severity_query.filter(DetectionEvent.user_id == analysis_user_id)
+                    if detection_date_filter is not True:
+                        severity_query = severity_query.filter(detection_date_filter)
                         
                     severity_counts = severity_query.group_by(DetectionEvent.severity).all()
                     
@@ -246,6 +297,8 @@ def show():
                     
                     if analysis_user_id is not None:
                         action_query = action_query.filter(DetectionEvent.user_id == analysis_user_id)
+                    if detection_date_filter is not True:
+                        action_query = action_query.filter(detection_date_filter)
                         
                     action_counts = action_query.group_by(DetectionEvent.action).all()
                     
@@ -267,6 +320,8 @@ def show():
                     
                     if analysis_user_id is not None:
                         date_query = date_query.filter(Conversation.user_id == analysis_user_id)
+                    if conversation_date_filter is not True:
+                        date_query = date_query.filter(conversation_date_filter)
                         
                     conversations_by_date_query = date_query.filter(
                         Conversation.created_at >= thirty_days_ago
@@ -295,6 +350,8 @@ def show():
                         for user_id_val, count in user_conversation_counts:
                             user_name = users.get(user_id_val, f"User {user_id_val}")
                             users_by_conversation_count[user_name] = count
+            finally:
+                session.close()
         except Exception as e:
             st.error(f"Error loading analytics data: {str(e)}")
         
@@ -432,81 +489,76 @@ def show():
         session.close()
     
     # Check for privacy alerts in conversations
-    # First, get all detection events to find which conversations have privacy issues
-    detection_events = get_detection_events(user_id if not is_admin else None, limit=1000)
+    # First, get relevant detection events to find which conversations have privacy issues
+    detection_events = []
+    if conversations:
+        conversation_user_ids = list({conv["user_id"] for conv in conversations})
+        conversation_updated_times = [conv["updated_at"] for conv in conversations if conv.get("updated_at")]
+        earliest_update = min(conversation_updated_times) - timedelta(minutes=15) if conversation_updated_times else None
+        latest_update = max(conversation_updated_times) + timedelta(minutes=15) if conversation_updated_times else None
+
+        session = get_session()
+        if session:
+            try:
+                event_query = session.query(DetectionEvent)
+                if not is_admin:
+                    event_query = event_query.filter(DetectionEvent.user_id == user_id)
+                elif conversation_user_ids:
+                    event_query = event_query.filter(DetectionEvent.user_id.in_(conversation_user_ids))
+
+                if earliest_update and latest_update:
+                    event_query = event_query.filter(
+                        DetectionEvent.timestamp >= earliest_update,
+                        DetectionEvent.timestamp <= latest_update
+                    )
+
+                detection_events = [
+                    {"user_id": event.user_id, "timestamp": event.timestamp}
+                    for event in event_query.order_by(DetectionEvent.timestamp.desc()).all()
+                ]
+            finally:
+                session.close()
     
     # Create a quick lookup dictionary to check if a message/conversation has associated privacy events
     # We'll assume a privacy event is associated with a conversation 
     # if it happened around the same time as the conversation was updated
-    privacy_alerts = {}
-    for event in detection_events:
-        event_user_id = event.get('user_id')
-        event_timestamp = event.get('timestamp')
-        
-        # For each user, store their detection events timestamps
-        if event_user_id not in privacy_alerts:
-            privacy_alerts[event_user_id] = []
-        
-        privacy_alerts[event_user_id].append(event_timestamp)
+    privacy_alerts = build_privacy_alert_index(detection_events)
     
-    for conv in conversations:
-        # Initialize message counters safely
-        try:
-            # For detached objects, we need to ensure messages are loaded
-            if hasattr(conv, 'messages') and conv.messages is not None:
-                message_count = len(conv.messages)
-                user_messages = sum(1 for msg in conv.messages if msg.role == "user")
-                ai_messages = sum(1 for msg in conv.messages if msg.role == "assistant")
-            else:
-                # If messages aren't loaded, get a fresh conversation object
-                fresh_conv = get_conversation(conv.id)
-                message_count = len(fresh_conv.messages) if fresh_conv and hasattr(fresh_conv, 'messages') else 0
-                user_messages = sum(1 for msg in fresh_conv.messages if msg.role == "user") if fresh_conv and hasattr(fresh_conv, 'messages') else 0
-                ai_messages = sum(1 for msg in fresh_conv.messages if msg.role == "assistant") if fresh_conv and hasattr(fresh_conv, 'messages') else 0
-        except Exception as e:
-            # Fallback to safe values if any error occurs
-            message_count = 0
-            user_messages = 0
-            ai_messages = 0
-        
-        # Get date in readable format
-        created_date = conv.created_at.strftime("%Y-%m-%d %H:%M")
-        updated_date = conv.updated_at.strftime("%Y-%m-%d %H:%M")
-        
-        # Check if this conversation has privacy alerts
-        has_privacy_alert = False
-        if conv.user_id in privacy_alerts:
-            # Check if any privacy event happened around the time of conversation updates
-            # Using a 15-minute window (rough estimation)
-            time_window = 15 * 60  # 15 minutes in seconds
-            conv_timestamp = conv.updated_at.timestamp()
-            
-            for event_time in privacy_alerts[conv.user_id]:
-                event_timestamp = event_time.timestamp()
-                # If event happened within time_window of conversation update
-                if abs(event_timestamp - conv_timestamp) < time_window:
-                    has_privacy_alert = True
-                    break
-        
-        # Create conversation data dict
-        conv_data = {
-            "ID": conv.id,
-            "Title": conv.title,
-            "Created": created_date,
-            "Last Updated": updated_date,
-            "Privacy Alert": "⚠️" if has_privacy_alert else "",
-            "Messages": message_count,
-            "User Msgs": user_messages,
-            "AI Msgs": ai_messages
-        }
-        
-        # Add username for admin view
-        if is_admin:
-            username = users.get(conv.user_id, f"User {conv.user_id}")
-            conv_data["Username"] = username
-        
-        # Add to data
-        conversation_data.append(conv_data)
+    message_counts = {}
+    conversation_ids = [conv["id"] for conv in conversations]
+    if conversation_ids:
+        session = get_session()
+        if session:
+            try:
+                from sqlalchemy.sql import func
+                count_rows = session.query(
+                    Message.conversation_id,
+                    Message.role,
+                    func.count(Message.id)
+                ).filter(
+                    Message.conversation_id.in_(conversation_ids)
+                ).group_by(
+                    Message.conversation_id,
+                    Message.role
+                ).all()
+
+                for conversation_id, role_name, count in count_rows:
+                    message_counts.setdefault(conversation_id, {"total": 0, "user": 0, "assistant": 0})
+                    message_counts[conversation_id]["total"] += count
+                    if role_name == "user":
+                        message_counts[conversation_id]["user"] = count
+                    elif role_name == "assistant":
+                        message_counts[conversation_id]["assistant"] = count
+            finally:
+                session.close()
+
+    conversation_data = build_history_conversation_rows(
+        conversations=conversations,
+        message_counts=message_counts,
+        privacy_alerts=privacy_alerts,
+        is_admin=is_admin,
+        users=users,
+    )
     
     # Create dataframe
     df = pd.DataFrame(conversation_data)
@@ -539,16 +591,18 @@ def show():
     st.subheader("Conversation Actions")
     
     # Let user select a conversation
-    conversation_options = {conv.title: conv.id for conv in conversations}
+    conversation_options = {
+        f"{conv['title']} (ID: {conv['id']})": conv["id"] for conv in conversations
+    }
     selected_title = st.selectbox("Select a conversation", list(conversation_options.keys()))
     selected_id = conversation_options[selected_title]
     
     # Get the selected conversation details
-    selected_conversation = next((c for c in conversations if c.id == selected_id), None)
+    selected_conversation = next((c for c in conversations if c["id"] == selected_id), None)
     
     if selected_conversation:
         # Check if admin is viewing someone else's conversation
-        is_admin_viewing_others = is_admin and selected_conversation.user_id != user_id
+        is_admin_viewing_others = is_admin and selected_conversation["user_id"] != user_id
         
         # For regular users or admins viewing their own conversations
         if not is_admin_viewing_others:
@@ -564,7 +618,11 @@ def show():
                     try:
                         # Generate PDF
                         with st.spinner("Generating PDF..."):
-                            pdf_path = export_conversation_to_pdf(selected_id)
+                            pdf_path = export_conversation_to_pdf(
+                                selected_id,
+                                requesting_user_id=user_id,
+                                allow_admin_access=is_admin and not is_admin_viewing_others
+                            )
                         
                         # Provide download link
                         with open(pdf_path, "rb") as pdf_file:
@@ -582,14 +640,14 @@ def show():
             with col3:
                 # Delete conversation with confirmation
                 if st.button("Delete Conversation", key="delete_btn"):
-                    st.warning(f"Are you sure you want to delete '{selected_conversation.title}'? This action cannot be undone.")
+                    st.warning(f"Are you sure you want to delete '{selected_conversation['title']}'? This action cannot be undone.")
                     
                     confirm_col1, confirm_col2 = st.columns(2)
                     
                     with confirm_col1:
                         if st.button("Yes, delete it", key="confirm_delete"):
                             # Delete the conversation
-                            success = delete_conversation(selected_id)
+                            success = delete_conversation(selected_id, requesting_user_id=user_id)
                             
                             if success:
                                 st.success("Conversation deleted successfully.")
@@ -609,55 +667,46 @@ def show():
             
             try:
                 # Get a fresh conversation with eagerly loaded messages and files
-                fresh_conversation = get_conversation(selected_id)
+                fresh_conversation = get_conversation(selected_id, requesting_user_id=user_id, allow_admin_access=is_admin)
                 
                 # Check if this conversation has privacy alerts
-                has_privacy_alert = False
-                if selected_conversation.user_id in privacy_alerts:
-                    time_window = 15 * 60  # 15 minutes in seconds
-                    conv_timestamp = selected_conversation.updated_at.timestamp()
-                    
-                    for event_time in privacy_alerts[selected_conversation.user_id]:
-                        event_timestamp = event_time.timestamp()
-                        if abs(event_timestamp - conv_timestamp) < time_window:
-                            has_privacy_alert = True
-                            break
+                has_privacy_alert = conversation_has_privacy_alert(selected_conversation, privacy_alerts)
                 
                 # Display privacy alert if detected
                 if has_privacy_alert:
                     st.warning("⚠️ Privacy Alert: This conversation contains messages with potentially sensitive information that triggered privacy scanning alerts.")
                 
-                if fresh_conversation and hasattr(fresh_conversation, 'messages') and fresh_conversation.messages:
+                fresh_messages = fresh_conversation.get("messages", []) if fresh_conversation else []
+                if fresh_messages:
                     # Display messages (limited to 5 for preview)
                     message_limit = 5
-                    messages_to_show = fresh_conversation.messages[:message_limit]
+                    messages_to_show = fresh_messages[:message_limit]
                     
                     for msg in messages_to_show:
-                        if msg.role == "user":
+                        if msg.get("role") == "user":
                             with st.chat_message("user"):
                                 # Truncate long messages
-                                content = msg.content
+                                content = msg.get("content", "")
                                 if len(content) > 300:
                                     content = content[:300] + "..."
                                 
                                 st.write(content)
                                 
                                 # Show files if any
-                                if hasattr(msg, 'files') and msg.files:
-                                    for file in msg.files:
-                                        st.caption(f"File: {file.original_name}")
+                                for file in msg.get("files", []):
+                                    st.caption(f"File: {file['original_name']}")
                         else:
                             with st.chat_message("assistant"):
                                 # Truncate long messages
-                                content = msg.content
+                                content = msg.get("content", "")
                                 if len(content) > 300:
                                     content = content[:300] + "..."
                                 
                                 st.write(content)
                     
                     # Show a message if there are more messages
-                    if len(fresh_conversation.messages) > message_limit:
-                        st.info(f"Showing {message_limit} of {len(fresh_conversation.messages)} messages. Open the conversation to see all.")
+                    if len(fresh_messages) > message_limit:
+                        st.info(f"Showing {message_limit} of {len(fresh_messages)} messages. Open the conversation to see all.")
                 else:
                     st.info("No messages in this conversation. Open it to start chatting.")
             except Exception as e:
@@ -670,7 +719,11 @@ def show():
             
             # Get privacy events related to this conversation if any
             try:
-                with get_session() as session:
+                session = get_session()
+                if not session:
+                    st.error("Unable to connect to database. Please try again later.")
+                    return
+                try:
                     # Check if this conversation has any messages with files
                     message_with_files = session.query(Message).filter(
                         Message.conversation_id == selected_id,
@@ -678,16 +731,7 @@ def show():
                     ).first() is not None
                     
                     # Check if this conversation has privacy alerts
-                    has_privacy_alert = False
-                    if selected_conversation.user_id in privacy_alerts:
-                        time_window = 15 * 60  # 15 minutes in seconds
-                        conv_timestamp = selected_conversation.updated_at.timestamp()
-                        
-                        for event_time in privacy_alerts[selected_conversation.user_id]:
-                            event_timestamp = event_time.timestamp()
-                            if abs(event_timestamp - conv_timestamp) < time_window:
-                                has_privacy_alert = True
-                                break
+                    has_privacy_alert = conversation_has_privacy_alert(selected_conversation, privacy_alerts)
                     
                     # Get detailed stats about the conversation
                     user_message_count = session.query(Message).filter(
@@ -701,19 +745,19 @@ def show():
                     ).count()
                     
                     # Get username of conversation owner
-                    username = users.get(selected_conversation.user_id, f"User {selected_conversation.user_id}")
+                    username = users.get(selected_conversation["user_id"], f"User {selected_conversation['user_id']}")
                     
                     # Show metadata in organized format
                     metadata_col1, metadata_col2 = st.columns(2)
                     
                     with metadata_col1:
-                        st.write(f"**Title:** {selected_conversation.title}")
-                        st.write(f"**Created:** {selected_conversation.created_at.strftime('%Y-%m-%d %H:%M')}")
+                        st.write(f"**Title:** {selected_conversation['title']}")
+                        st.write(f"**Created:** {selected_conversation['created_at'].strftime('%Y-%m-%d %H:%M')}")
                         st.write(f"**User Messages:** {user_message_count}")
                         
                     with metadata_col2:
                         st.write(f"**Owner:** {username}")
-                        st.write(f"**Last Updated:** {selected_conversation.updated_at.strftime('%Y-%m-%d %H:%M')}")
+                        st.write(f"**Last Updated:** {selected_conversation['updated_at'].strftime('%Y-%m-%d %H:%M')}")
                         st.write(f"**AI Messages:** {assistant_message_count}")
                     
                     # Show additional information about file attachments
@@ -733,7 +777,7 @@ def show():
                         with confirm_col1:
                             if st.button("Yes, delete it", key="admin_confirm_delete"):
                                 # Delete the conversation
-                                success = delete_conversation(selected_id)
+                                success = delete_conversation(selected_id, allow_admin_access=True)
                                 
                                 if success:
                                     st.success("Conversation deleted successfully.")
@@ -744,6 +788,8 @@ def show():
                         with confirm_col2:
                             if st.button("Cancel", key="admin_cancel_delete"):
                                 st.rerun()
+                finally:
+                    session.close()
             
             except Exception as e:
                 st.error(f"Error loading conversation metadata: {str(e)}")

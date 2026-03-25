@@ -16,6 +16,13 @@ from database import get_session
 from models import Conversation, Message, File, Settings
 from privacy_scanner import scan_text, anonymize_text, scan_file_content
 from ai_providers import get_ai_response, create_system_prompt, get_user_settings, get_available_models
+from page_logic import (
+    build_chat_ai_messages,
+    build_current_user_content,
+    build_file_payloads,
+    build_uploaded_file_records,
+    get_chat_provider_precheck_error,
+)
 from utils import (
     create_new_conversation, 
     get_conversation, 
@@ -52,7 +59,11 @@ def show():
     if not settings:
         st.error("User settings not found. Please contact an administrator.")
         return
-    
+
+    if st.session_state.get("must_change_password"):
+        st.warning("This account is still using the bootstrap password. Change it in Settings before using chat.")
+        return
+
     # Create two columns for conversation management
     col1, col2 = st.columns([3, 1])
     
@@ -61,12 +72,18 @@ def show():
         if st.button("Start New Conversation"):
             # Create new conversation in database
             conversation_id = create_new_conversation(user_id)
-            st.session_state.current_conversation_id = conversation_id
-            st.rerun()
+            if conversation_id <= 0:
+                st.error("Failed to create a new conversation.")
+            else:
+                st.session_state.current_conversation_id = conversation_id
+                st.rerun()
     
     with col2:
         # Dropdown to select existing conversation
         session = get_session()
+        if not session:
+            st.error("Unable to load conversations.")
+            return
         conversations = session.query(Conversation).filter(
             Conversation.user_id == user_id
         ).order_by(Conversation.updated_at.desc()).all()
@@ -79,18 +96,26 @@ def show():
             title = f"{conv.title} ({formatted_date})"
             conversation_options[title] = conv.id
         
+        current_conversation_id = st.session_state.get("current_conversation_id")
+        current_selection = "Select a conversation"
+        for title, conv_id in conversation_options.items():
+            if conv_id == current_conversation_id:
+                current_selection = title
+                break
+
         # Add placeholder for selecting conversation
         conversation_list = ["Select a conversation"] + list(conversation_options.keys())
         selected_conversation = st.selectbox(
             "Load conversation", 
             conversation_list,
-            index=0
+            index=conversation_list.index(current_selection)
         )
         
         if selected_conversation != "Select a conversation":
             selected_id = conversation_options[selected_conversation]
-            st.session_state.current_conversation_id = selected_id
-            st.rerun()
+            if st.session_state.get("current_conversation_id") != selected_id:
+                st.session_state.current_conversation_id = selected_id
+                st.rerun()
     
     # Create main chat interface
     st.markdown("---")
@@ -102,7 +127,7 @@ def show():
     
     # Load the current conversation
     conversation_id = st.session_state.current_conversation_id
-    conversation = get_conversation(conversation_id)
+    conversation = get_conversation(conversation_id, requesting_user_id=user_id)
     
     if not conversation:
         st.error("Conversation not found. It may have been deleted.")
@@ -404,7 +429,10 @@ def show():
             
             # Now add the chat input below
             st.markdown('<div class="message-input">', unsafe_allow_html=True)
-            user_message = st.chat_input("Type your message here or drag files anywhere...")
+            user_message = st.chat_input(
+                "Type your message here or drag files anywhere...",
+                disabled=bool(st.session_state.get("pending_chat_submission"))
+            )
             st.markdown('</div>', unsafe_allow_html=True)
             
             st.markdown('</div>', unsafe_allow_html=True)
@@ -421,6 +449,56 @@ def show():
     
     # Process user message in the chat container
     with chat_container:
+        pending_submission = st.session_state.get("pending_chat_submission")
+        if pending_submission and pending_submission.get("conversation_id") != conversation_id:
+            pending_submission = None
+
+        if pending_submission and pending_submission.get("conversation_id") == conversation_id:
+            st.warning("Sensitive information was detected in your last submission.")
+            st.write("Detected patterns:")
+            for pattern_type, matches in pending_submission.get("detected", {}).items():
+                st.write(
+                    f"- **{pattern_type}**: {', '.join(matches[:3])}"
+                    + (f" and {len(matches) - 3} more" if len(matches) > 3 else "")
+                )
+
+            pending_col1, pending_col2 = st.columns(2)
+            with pending_col1:
+                continue_original = st.button("Continue with original text", key="continue_original_sensitive")
+            with pending_col2:
+                anonymize_pending = st.button("Anonymize sensitive information", key="anonymize_sensitive")
+
+            if not continue_original and not anonymize_pending:
+                st.info("Choose how to proceed to continue.")
+                st.stop()
+
+            user_message = pending_submission["user_message"]
+            file_payloads = pending_submission.get("file_payloads", [])
+            final_message = user_message
+
+            if anonymize_pending:
+                final_message, _ = anonymize_text(user_id, user_message)
+                for file_payload in file_payloads:
+                    anonymized_content, _ = anonymize_text(user_id, file_payload["content"])
+                    file_payload["content"] = anonymized_content
+                    file_payload["content_bytes"] = anonymized_content.encode("utf-8")
+
+                with st.chat_message("user"):
+                    st.write("Original message has been anonymized:")
+                    st.markdown(f"**Anonymized message:** {final_message}")
+                    for file_payload in file_payloads:
+                        st.caption(f"File: {file_payload['name']} (anonymized)")
+            else:
+                with st.chat_message("user"):
+                    st.write(user_message)
+                    for file_payload in file_payloads:
+                        st.caption(f"File: {file_payload['name']}")
+
+            st.session_state.pop("pending_chat_submission", None)
+            uploaded_file_records = build_uploaded_file_records(file_payloads)
+        else:
+            uploaded_file_records = []
+
         # Process message if one exists
         if user_message:
             # Create a placeholder for the user message that will be replaced if anonymized
@@ -435,47 +513,37 @@ def show():
                     for file in uploaded_files:
                         st.caption(f"File: {file.name}")
             
+            file_payloads = build_file_payloads(uploaded_files)
+            uploaded_file_records = build_uploaded_file_records(file_payloads)
+
             # Scan message for sensitive information
-            has_sensitive, detected = scan_text(user_id, user_message)
-            
-            # Process files if any are uploaded
-            file_contents = []
-            if uploaded_files:
-                for file in uploaded_files:
-                    # Read file content
-                    file_content = file.read().decode("utf-8", errors="ignore")
-                    
-                    # Scan file content
-                    file_has_sensitive, file_detected = scan_file_content(user_id, file_content, file.name)
-                    
-                    # Add to detected if sensitive information found
+            has_sensitive = False
+            detected = {}
+            if settings.scan_enabled:
+                has_sensitive, detected = scan_text(user_id, user_message)
+
+                for file_payload in file_payloads:
+                    file_has_sensitive, file_detected = scan_file_content(user_id, file_payload["content"], file_payload["name"])
                     if file_has_sensitive:
                         for pattern_type, matches in file_detected.items():
-                            if pattern_type in detected:
-                                detected[pattern_type].extend(matches)
-                            else:
-                                detected[pattern_type] = matches
-                        
+                            detected.setdefault(pattern_type, []).extend(matches)
                         has_sensitive = True
-                    
-                    # Store file content
-                    file_contents.append({"name": file.name, "content": file_content})
-                    
-                    # Reset file pointer for later use
-                    file.seek(0)
-        
-            # If sensitive information found, either show warning or auto-anonymize
+
+                detected = {key: list(dict.fromkeys(value)) for key, value in detected.items()}
+
+            # If sensitive information found, either block for manual review or auto-anonymize
             final_message = user_message
-            if has_sensitive and settings.scan_enabled:
+            if has_sensitive:
                 # Check if auto-anonymize is enabled in settings
                 if settings.auto_anonymize:
                     # Automatically anonymize the message
                     final_message, _ = anonymize_text(user_id, user_message)
                     
                     # Anonymize file contents if any
-                    for i, file_data in enumerate(file_contents):
-                        anonymized_content, _ = anonymize_text(user_id, file_data["content"])
-                        file_contents[i]["content"] = anonymized_content
+                    for file_payload in file_payloads:
+                        anonymized_content, _ = anonymize_text(user_id, file_payload["content"])
+                        file_payload["content"] = anonymized_content
+                        file_payload["content_bytes"] = anonymized_content.encode("utf-8")
                     
                     # Clear the original user message and display the anonymized version
                     user_message_container.empty()
@@ -486,260 +554,196 @@ def show():
                         st.markdown(f"**Anonymized message:** {final_message}")
                         
                         # Display files if they exist
-                        if uploaded_files:
-                            for file in uploaded_files:
-                                st.caption(f"File: {file.name} (anonymized)")
+                        for file_payload in file_payloads:
+                            st.caption(f"File: {file_payload['name']} (anonymized)")
                     
                     st.success("Message and files automatically anonymized (based on your settings)")
                 else:
-                    # Manual choice mode
-                    st.warning("🚨 Sensitive information detected in your message or files!")
-                    
-                    # Show detected patterns
-                    st.write("Detected patterns:")
-                    for pattern_type, matches in detected.items():
-                        st.write(f"- **{pattern_type}**: {', '.join(matches[:3])}" + 
-                                (f" and {len(matches) - 3} more" if len(matches) > 3 else ""))
-                    
-                    # Ask user what to do
-                    st.info("How would you like to proceed?")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button("Continue with original text"):
-                            pass  # Use original message
-                    
-                    with col2:
-                        if st.button("Anonymize sensitive information"):
-                            # Anonymize message
-                            final_message, _ = anonymize_text(user_id, user_message)
-                            
-                            # Anonymize file contents if any
-                            for i, file_data in enumerate(file_contents):
-                                anonymized_content, _ = anonymize_text(user_id, file_data["content"])
-                                file_contents[i]["content"] = anonymized_content
-                            
-                            # Clear the original user message and display the anonymized version instead
-                            user_message_container.empty()  # Clear the previous message container
-                            
-                            # Display anonymized message in the same position
-                            with user_message_container.chat_message("user"):
-                                st.write("Original message has been anonymized:")
-                                st.markdown(f"**Anonymized message:** {final_message}")
-                                
-                                # Display files if they exist
-                                if uploaded_files:
-                                    for file in uploaded_files:
-                                        st.caption(f"File: {file.name} (anonymized)")
-                            
-                            st.success("Message and files anonymized.")
+                    st.session_state.pending_chat_submission = {
+                        "conversation_id": conversation_id,
+                        "user_message": user_message,
+                        "file_payloads": file_payloads,
+                        "detected": detected,
+                    }
+                    st.rerun()
             
-            # Add message to database
-            message_id, dlp_error = add_message_to_conversation(
-                conversation_id=conversation_id,
-                role="user",
-                content=final_message,
-                uploaded_files=uploaded_files
-            )
-            
-            # Check if any files were blocked by Microsoft DLP
-            if dlp_error:
-                st.error(f"⚠️ {dlp_error}")
-                # Early return if files were blocked
-                st.stop()
+        if not user_message and not pending_submission:
+            return
+
+        if not uploaded_file_records and 'file_payloads' in locals():
+            uploaded_file_records = build_uploaded_file_records(file_payloads)
+
+        # Add message to database
+        message_id, dlp_error = add_message_to_conversation(
+            conversation_id=conversation_id,
+            role="user",
+            content=final_message,
+            uploaded_files=uploaded_file_records
+        )
         
-            # Prepare context from files if any are uploaded
-            file_context = ""
-            if file_contents:
-                file_context = "\n\nThe following files were uploaded:\n\n"
-                for file_data in file_contents:
-                    file_context += f"--- BEGIN FILE: {file_data['name']} ---\n"
-                    file_context += file_data["content"]
-                    file_context += f"\n--- END FILE: {file_data['name']} ---\n\n"
-            
-            # Handle web search directive
-            search_results = ""
-            if final_message.startswith("/search "):
-                search_query = final_message[8:].strip()
-                response_container = st.empty()
-                response_container.info(f"🔍 Searching the web for: {search_query}")
-                
-                # Check if SerpAPI key is configured in environment variables
-                serpapi_key = os.environ.get("SERPAPI_KEY", "")
-                if not serpapi_key:
-                    st.warning("⚠️ SerpAPI key not found in environment variables. Please add your API key to your .env file or environment variables with the key SERPAPI_KEY.")
-                else:
-                    try:
-                        # Perform the search
-                        search_params = {
-                            "q": search_query,
-                            "api_key": serpapi_key,
-                            "num": 5  # Get top 5 results
-                        }
-                        
-                        search = GoogleSearch(search_params)
-                        results = search.get_dict()
-                        
-                        # Format search results
-                        search_results = "\n\nWeb search results for query: " + search_query + "\n\n"
-                        
-                        if "organic_results" in results:
-                            for i, result in enumerate(results["organic_results"][:5], 1):
-                                title = result.get("title", "No title")
-                                snippet = result.get("snippet", "No description")
-                                link = result.get("link", "#")
-                                search_results += f"{i}. {title}\n{snippet}\nURL: {link}\n\n"
-                        else:
-                            search_results = "\n\nNo search results found.\n\n"
-                        
-                        response_container.success("✅ Search completed")
-                    except Exception as e:
-                        search_results = f"\n\nError performing web search: {str(e)}\n\n"
-                        response_container.error(f"Error during search: {str(e)}")
-            
-            # Get the currently selected model and character (from temporary session state)
-            selected_model = st.session_state.get("temp_model", "")
-            selected_character = st.session_state.get("temp_character", settings.ai_character)
-            
-            # Check if character has changed
-            last_character = st.session_state.get("last_used_character", None)
-            character_changed = last_character is not None and last_character != selected_character
-            
-            # Store the current character for future comparison
-            st.session_state["last_used_character"] = selected_character
+        # Check if any files were blocked by Microsoft DLP
+        if dlp_error:
+            st.error(f"⚠️ {dlp_error}")
+            # Early return if files were blocked
+            st.stop()
         
-            # Prepare messages for AI
-            ai_messages = []
+        # Prepare context from files if any are uploaded
+        file_context = ""
+        if file_payloads:
+            file_context = "\n\nThe following files were uploaded:\n\n"
+            for file_payload in file_payloads:
+                file_context += f"--- BEGIN FILE: {file_payload['name']} ---\n"
+                file_context += file_payload["content"]
+                file_context += f"\n--- END FILE: {file_payload['name']} ---\n\n"
+        
+        # Handle web search directive
+        search_results = ""
+        if final_message.startswith("/search "):
+            search_query = final_message[8:].strip()
+            response_container = st.empty()
+            response_container.info(f"🔍 Searching the web for: {search_query}")
             
-            # Add system message based on selected character
-            system_prompt = create_system_prompt(selected_character)
-            
-            # Define role name for later use
-            role_name = selected_character.replace("_", " ").title()
-            
-            # Use the system prompt as-is without additional instructions
-            ai_messages = [{"role": "system", "content": system_prompt}]
-            
-            # Add the current user message to the messages list
-            ai_messages.append({"role": "user", "content": final_message})
-            
-            # If character has changed, send a notification message
-            if character_changed:
-                # Add a character change notification
-                ai_messages.append({
-                    "role": "user", 
-                    "content": f"The user has changed your role. From now on, you will respond as a {role_name}."
-                })
-                ai_messages.append({
-                    "role": "assistant", 
-                    "content": f"I understand. I'll now be responding as a {role_name}."
-                })
-            
-            # Add conversation history (limit to avoid token limits, but ensure the system message stays)
-            # Format history messages to avoid SQLAlchemy detached instance errors
-            if len(conversation["messages"]) > 0:
-                # Get messages excluding the current message if any
-                history_messages = conversation["messages"][:-1][-10:] if len(conversation["messages"]) > 10 else conversation["messages"][:-1]
-                
-                # Format messages to avoid detached instance errors
-                formatted_messages = format_conversation_messages(history_messages)
-                
-                # Add messages to the AI messages list
-                for message_dict in formatted_messages:
-                    # Skip system messages that might be in the conversation history
-                    # because we already added a system message at the beginning
-                    if message_dict["role"] != "system":
-                        ai_messages.append({"role": message_dict["role"], "content": message_dict["content"]})
-            
-            # Modify the last user message to include file context and search results if any
-            # And reinforce the AI character role for each user message
-            for i, msg in enumerate(ai_messages):
-                if msg["role"] == "user":
-                    # Get the AI character role name
-                    role_name = selected_character.replace("_", " ").title()
+            # Check if SerpAPI key is configured in environment variables
+            serpapi_key = os.environ.get("SERPAPI_KEY", "")
+            if not serpapi_key:
+                st.warning("⚠️ SerpAPI key not found in environment variables. Please add your API key to your .env file or environment variables with the key SERPAPI_KEY.")
+            else:
+                try:
+                    # Perform the search
+                    search_params = {
+                        "q": search_query,
+                        "api_key": serpapi_key,
+                        "num": 5  # Get top 5 results
+                    }
                     
-                    # Add context if this is the last user message
-                    if i == len(ai_messages) - 1 and (file_context or search_results):
-                        content = msg["content"]
-                        if search_results:
-                            content += search_results
-                        if file_context:
-                            content += file_context
-                        ai_messages[i]["content"] = content
-                    # Keep other user messages as-is without modifications
-            
-            # Get AI response
-            with st.chat_message("assistant"):
-                # Initialize an empty container for the response
-                response_container = st.empty()
-                full_response = ""
-                
-                # Display thinking indicator
-                thinking_msg = response_container.text("Thinking...")
-                
-                # Get the selected provider
-                selected_provider = st.session_state.get("temp_provider", settings.llm_provider)
-                
-                # Check environment variables for API keys
-                openai_key = os.environ.get("OPENAI_API_KEY", "")
-                claude_key = os.environ.get("ANTHROPIC_API_KEY", "")
-                gemini_key = os.environ.get("GOOGLE_API_KEY", "")
-                
-                # Check provider settings based on the selected provider
-                if selected_provider == "openai" and not openai_key:
-                    full_response = "⚠️ OpenAI API key not found in environment variables. Please add your API key to your .env file or environment variables with the key OPENAI_API_KEY."
-                elif selected_provider == "claude" and not claude_key:
-                    full_response = "⚠️ Claude API key not found in environment variables. Please add your API key to your .env file or environment variables with the key ANTHROPIC_API_KEY."
-                elif selected_provider == "gemini" and not gemini_key:
-                    full_response = "⚠️ Gemini API key not found in environment variables. Please add your API key to your .env file or environment variables with the key GOOGLE_API_KEY."
-                elif selected_provider == "local" and not settings.local_model_path:
-                    full_response = "⚠️ Local model path not configured. Please add a model path in the settings."
-                else:
-                    # Get streamed response from AI provider
-                    try:
-                        # Get the selected provider
-                        selected_provider = st.session_state.get("temp_provider", settings.llm_provider)
-                        
-                        # Override the provider settings temporarily
-                        provider_settings = {}
-                        if selected_provider != settings.llm_provider:
-                            provider_settings["override_provider"] = selected_provider
-                        
-                        # Pass the selected model and provider as overrides
-                        response_stream = get_ai_response(
-                            user_id, 
-                            ai_messages, 
-                            stream=True,
-                            override_model=selected_model,
-                            **provider_settings
-                        )
-                        
-                        # Check if response is a string (error) or a generator
-                        if isinstance(response_stream, str):
-                            full_response = response_stream
-                        else:
-                            # Process stream
-                            for chunk in response_stream:
-                                full_response += chunk
-                                # Update the response container with the new content
-                                response_container.markdown(full_response)
-                    except Exception as e:
-                        full_response = f"Error getting AI response: {str(e)}"
+                    search = GoogleSearch(search_params)
+                    results = search.get_dict()
                     
-                # Update the final response
-                response_container.markdown(full_response)
+                    # Format search results
+                    search_results = "\n\nWeb search results for query: " + search_query + "\n\n"
+                    
+                    if "organic_results" in results:
+                        for i, result in enumerate(results["organic_results"][:5], 1):
+                            title = result.get("title", "No title")
+                            snippet = result.get("snippet", "No description")
+                            link = result.get("link", "#")
+                            search_results += f"{i}. {title}\n{snippet}\nURL: {link}\n\n"
+                    else:
+                        search_results = "\n\nNo search results found.\n\n"
+                    
+                    response_container.success("✅ Search completed")
+                except Exception as e:
+                    search_results = f"\n\nError performing web search: {str(e)}\n\n"
+                    response_container.error(f"Error during search: {str(e)}")
+        
+        # Get the currently selected model and character (from temporary session state)
+        selected_model = st.session_state.get("temp_model", "")
+        selected_character = st.session_state.get("temp_character", settings.ai_character)
+        
+        # Check if character has changed
+        last_character = st.session_state.get("last_used_character", None)
+        character_changed = last_character is not None and last_character != selected_character
+        
+        # Store the current character for future comparison
+        st.session_state["last_used_character"] = selected_character
+
+        # Add system message based on selected character
+        system_prompt = create_system_prompt(selected_character)
+        
+        # Define role name for later use
+        role_name = selected_character.replace("_", " ").title()
+
+        current_user_content = build_current_user_content(
+            final_message=final_message,
+            search_results=search_results,
+            file_context=file_context,
+        )
+
+        # Reload after persisting the current user turn so the history window stays accurate.
+        refreshed_conversation = get_conversation(conversation_id, requesting_user_id=user_id)
+        if not refreshed_conversation:
+            st.error("Failed to reload the conversation after saving your message.")
+            return
+
+        ai_messages = build_chat_ai_messages(
+            system_prompt=system_prompt,
+            conversation_messages=refreshed_conversation["messages"],
+            current_message_id=message_id,
+            current_user_content=current_user_content,
+            character_changed=character_changed,
+            role_name=role_name,
+        )
+        
+        # Get AI response
+        with st.chat_message("assistant"):
+            # Initialize an empty container for the response
+            response_container = st.empty()
+            full_response = ""
             
-            # Save the assistant message to the database
-            message_id, _ = add_message_to_conversation(
-                conversation_id=conversation_id,
-                role="assistant",
-                content=full_response,
-                uploaded_files=[] # Empty list instead of None
+            # Display thinking indicator
+            thinking_msg = response_container.text("Thinking...")
+            
+            # Get the selected provider
+            selected_provider = st.session_state.get("temp_provider", settings.llm_provider)
+            
+            # Check environment variables for API keys
+            openai_key = os.environ.get("OPENAI_API_KEY", "")
+            claude_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            gemini_key = os.environ.get("GOOGLE_API_KEY", "")
+            
+            # Check provider settings based on the selected provider
+            provider_error = get_chat_provider_precheck_error(
+                selected_provider=selected_provider,
+                settings=settings,
+                openai_key=openai_key,
+                claude_key=claude_key,
+                gemini_key=gemini_key,
             )
-            
-            # Update the conversation in session state
-            st.rerun()
+            if provider_error:
+                full_response = provider_error
+            else:
+                # Get streamed response from AI provider
+                try:
+                    # Override the provider settings temporarily
+                    provider_settings = {}
+                    if selected_provider != settings.llm_provider:
+                        provider_settings["override_provider"] = selected_provider
+                    
+                    # Pass the selected model and provider as overrides
+                    response_stream = get_ai_response(
+                        user_id, 
+                        ai_messages, 
+                        stream=True,
+                        override_model=selected_model,
+                        input_already_processed=True,
+                        **provider_settings
+                    )
+                    
+                    # Check if response is a string (error) or a generator
+                    if isinstance(response_stream, str):
+                        full_response = response_stream
+                    else:
+                        # Process stream
+                        for chunk in response_stream:
+                            full_response += chunk
+                            # Update the response container with the new content
+                            response_container.markdown(full_response)
+                except Exception as e:
+                    full_response = f"Error getting AI response: {str(e)}"
+                
+            # Update the final response
+            response_container.markdown(full_response)
+        
+        # Save the assistant message to the database
+        message_id, _ = add_message_to_conversation(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=full_response,
+            uploaded_files=[] # Empty list instead of None
+        )
+        
+        # Update the conversation in session state
+        st.rerun()
 
 # If the file is run directly, show the chat interface
 if __name__ == "__main__" or "show" not in locals():

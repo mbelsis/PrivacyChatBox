@@ -29,8 +29,9 @@ except ImportError:
 
 # Default chunk size (1000 characters)
 DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_OVERLAP = 128
 
-def extract_text_from_pdf(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Generator[str, None, None]:
+def extract_text_from_pdf(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> Generator[str, None, None]:
     """
     Extract text from a PDF file in chunks
     
@@ -53,14 +54,15 @@ def extract_text_from_pdf(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SI
         text = output_string.getvalue()
         
         # Yield chunks of text
-        for i in range(0, len(text), chunk_size):
+        step = max(1, chunk_size - overlap)
+        for i in range(0, len(text), step):
             yield text[i:i + chunk_size]
     except Exception as e:
         yield f"Error extracting text from PDF: {str(e)}"
     finally:
         output_string.close()
 
-def extract_text_from_docx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Generator[str, None, None]:
+def extract_text_from_docx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> Generator[str, None, None]:
     """
     Extract text from a DOCX file in chunks
     
@@ -83,12 +85,13 @@ def extract_text_from_docx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_S
         full_text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
         
         # Yield chunks of text
-        for i in range(0, len(full_text), chunk_size):
+        step = max(1, chunk_size - overlap)
+        for i in range(0, len(full_text), step):
             yield full_text[i:i + chunk_size]
     except Exception as e:
         yield f"Error extracting text from DOCX: {str(e)}"
 
-def extract_text_from_xlsx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Generator[str, None, None]:
+def extract_text_from_xlsx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> Generator[str, None, None]:
     """
     Extract text from an XLSX file in chunks
     
@@ -124,7 +127,7 @@ def extract_text_from_xlsx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_S
                 # If chunk is large enough, yield it
                 if len(current_chunk) >= chunk_size:
                     yield current_chunk[:chunk_size]
-                    current_chunk = current_chunk[chunk_size:]
+                    current_chunk = current_chunk[max(0, chunk_size - overlap):]
         
         # Yield any remaining text
         if current_chunk:
@@ -132,7 +135,7 @@ def extract_text_from_xlsx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_S
     except Exception as e:
         yield f"Error extracting text from XLSX: {str(e)}"
 
-def extract_text_from_csv(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Generator[str, None, None]:
+def extract_text_from_csv(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> Generator[str, None, None]:
     """
     Extract text from a CSV file in chunks
     
@@ -161,7 +164,7 @@ def extract_text_from_csv(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SI
             # If chunk is large enough, yield it
             if len(current_chunk) >= chunk_size:
                 yield current_chunk[:chunk_size]
-                current_chunk = current_chunk[chunk_size:]
+                current_chunk = current_chunk[max(0, chunk_size - overlap):]
         
         # Yield any remaining text
         if current_chunk:
@@ -169,7 +172,7 @@ def extract_text_from_csv(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SI
     except Exception as e:
         yield f"Error extracting text from CSV: {str(e)}"
 
-def extract_text_from_plaintext(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Generator[str, None, None]:
+def extract_text_from_plaintext(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> Generator[str, None, None]:
     """
     Extract text from a plaintext file in chunks
     
@@ -182,8 +185,10 @@ def extract_text_from_plaintext(file_obj: BinaryIO, chunk_size: int = DEFAULT_CH
     """
     try:
         # Read text in chunks
+        carryover = ""
+        step = max(1, chunk_size - overlap)
         while True:
-            chunk = file_obj.read(chunk_size)
+            chunk = file_obj.read(step)
             if not chunk:
                 break
                 
@@ -198,7 +203,9 @@ def extract_text_from_plaintext(file_obj: BinaryIO, chunk_size: int = DEFAULT_CH
                     except Exception:
                         chunk = f"Error decoding file content"
             
-            yield chunk
+            combined_chunk = carryover + chunk
+            yield combined_chunk
+            carryover = combined_chunk[-overlap:] if overlap > 0 else ""
     except Exception as e:
         yield f"Error reading plaintext file: {str(e)}"
 

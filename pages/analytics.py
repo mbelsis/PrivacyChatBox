@@ -13,6 +13,11 @@ from models import Conversation, Message, File, DetectionEvent, User, Settings
 from utils import format_detection_events
 from sqlalchemy.sql import func
 import shared_sidebar
+from page_logic import (
+    build_conversation_length_rows,
+    build_time_series_maps,
+    build_time_series_rows,
+)
 from style import apply_custom_css
 
 # Apply custom CSS
@@ -40,6 +45,13 @@ def show():
     
     # Check if user is admin - admins see system-wide analytics
     is_admin = role == "admin"
+    if not is_admin:
+        st.error("Access denied. Use the History page for your personal analytics.")
+        return
+
+    selected_user_id = None
+    cutoff_date = None
+    detection_events = []
     
     # Create tabs for different analytics categories
     usage_tab, privacy_tab, pattern_tab, conversation_tab = st.tabs([
@@ -149,7 +161,17 @@ def show():
                 conversations_by_date_query = session.query(
                     time_group,
                     func.count(Conversation.id)
-                ).group_by(time_group).all()
+                )
+
+                if selected_user_id:
+                    conversations_by_date_query = conversations_by_date_query.filter(Conversation.user_id == selected_user_id)
+                elif not is_admin:
+                    conversations_by_date_query = conversations_by_date_query.filter(Conversation.user_id == user_id)
+
+                if cutoff_date:
+                    conversations_by_date_query = conversations_by_date_query.filter(Conversation.created_at >= cutoff_date)
+
+                conversations_by_date_query = conversations_by_date_query.group_by(time_group).all()
                 
                 # Get messages by date
                 messages_by_date_query = session.query(
@@ -189,27 +211,14 @@ def show():
                 
                 detections_by_date_query = detections_by_date_query.group_by(func.date(DetectionEvent.timestamp)).all()
                 
-                # Format date keys for a uniform approach
-                for date_obj, count in conversations_by_date_query:
-                    if isinstance(date_obj, datetime):
-                        date_key = date_obj.strftime('%Y-%m-%d')
-                    else:
-                        date_key = date_obj.strftime('%Y-%m-%d') if hasattr(date_obj, 'strftime') else str(date_obj)
-                    conversations_by_date[date_key] = count
-                
-                for date_obj, count in messages_by_date_query:
-                    if isinstance(date_obj, datetime):
-                        date_key = date_obj.strftime('%Y-%m-%d')
-                    else:
-                        date_key = date_obj.strftime('%Y-%m-%d') if hasattr(date_obj, 'strftime') else str(date_obj)
-                    messages_by_date[date_key] = count
-                
-                for date_obj, count in detections_by_date_query:
-                    if isinstance(date_obj, datetime):
-                        date_key = date_obj.strftime('%Y-%m-%d')
-                    else:
-                        date_key = date_obj.strftime('%Y-%m-%d') if hasattr(date_obj, 'strftime') else str(date_obj)
-                    detections_by_date[date_key] = count
+                time_series_maps = build_time_series_maps({
+                    "conversations": conversations_by_date_query,
+                    "messages": messages_by_date_query,
+                    "detections": detections_by_date_query,
+                })
+                conversations_by_date = time_series_maps["conversations"]
+                messages_by_date = time_series_maps["messages"]
+                detections_by_date = time_series_maps["detections"]
         
         except Exception as e:
             st.error(f"Error loading metrics: {str(e)}")
@@ -246,22 +255,13 @@ def show():
         # Activity over time
         st.markdown("### Activity Over Time")
         
-        # Merge all date data for the time series
-        all_dates = sorted(set(list(conversations_by_date.keys()) + 
-                            list(messages_by_date.keys()) + 
-                            list(detections_by_date.keys())))
-        
-        # Create a clean dataframe with all dates
-        time_series_data = []
-        for date_str in all_dates:
-            time_series_data.append({
-                "Date": date_str,
-                "Conversations": conversations_by_date.get(date_str, 0),
-                "Messages": messages_by_date.get(date_str, 0),
-                "Privacy Events": detections_by_date.get(date_str, 0)
-            })
-        
-        df_time_series = pd.DataFrame(time_series_data)
+        df_time_series = pd.DataFrame(
+            build_time_series_rows(
+                conversations_by_date=conversations_by_date,
+                messages_by_date=messages_by_date,
+                detections_by_date=detections_by_date,
+            )
+        )
         if not df_time_series.empty:
             df_time_series["Date"] = pd.to_datetime(df_time_series["Date"])
             df_time_series = df_time_series.sort_values("Date")
@@ -359,7 +359,7 @@ def show():
                             if pattern_type not in pattern_counts:
                                 pattern_counts[pattern_type] = 0
                             pattern_counts[pattern_type] += len(matches)
-                    except:
+                    except Exception:
                         pass
                 
                 # Format action names for display
@@ -391,6 +391,7 @@ def show():
             severity_df = pd.DataFrame({"Severity": [], "Count": []})
             action_df = pd.DataFrame({"Action": [], "Count": []})
             pattern_df = pd.DataFrame({"Pattern": [], "Count": []})
+            detection_events = []
         
         # Display charts
         col1, col2 = st.columns(2)
@@ -585,7 +586,7 @@ def show():
                                 pattern_category_map[pattern_type] = "Custom Patterns"
                                 if pattern_type not in pattern_categories["Custom Patterns"]:
                                     pattern_categories["Custom Patterns"].append(pattern_type)
-                    except:
+                    except Exception:
                         pass
                 
                 # Create category totals
@@ -757,40 +758,26 @@ def show():
                 })
                 hourly_df = hourly_df.sort_values("Hour")
                 
-                # Get conversation length distribution
-                conv_lengths = {}
-                for conv in conversations_query.all():
-                    msg_count = sum(1 for _ in session.query(Message).filter(Message.conversation_id == conv.id))
-                    
-                    # Group into buckets
-                    if msg_count <= 2:
-                        bucket = "1-2 messages"
-                    elif msg_count <= 5:
-                        bucket = "3-5 messages"
-                    elif msg_count <= 10:
-                        bucket = "6-10 messages"
-                    elif msg_count <= 20:
-                        bucket = "11-20 messages"
-                    else:
-                        bucket = "21+ messages"
-                    
-                    if bucket not in conv_lengths:
-                        conv_lengths[bucket] = 0
-                    conv_lengths[bucket] += 1
-                
-                # Define order for buckets
-                bucket_order = ["1-2 messages", "3-5 messages", "6-10 messages", "11-20 messages", "21+ messages"]
-                
-                # Create dataframe for conversation lengths
-                length_data = []
-                for bucket in bucket_order:
-                    if bucket in conv_lengths:
-                        length_data.append({
-                            "Length": bucket,
-                            "Conversations": conv_lengths[bucket]
-                        })
-                
-                length_df = pd.DataFrame(length_data)
+                # Get conversation length distribution without N+1 queries
+                conversation_length_query = session.query(
+                    Conversation.id,
+                    func.count(Message.id)
+                ).outerjoin(
+                    Message, Message.conversation_id == Conversation.id
+                )
+
+                if selected_user_id:
+                    conversation_length_query = conversation_length_query.filter(Conversation.user_id == selected_user_id)
+                elif not is_admin:
+                    conversation_length_query = conversation_length_query.filter(Conversation.user_id == user_id)
+
+                if cutoff_date:
+                    conversation_length_query = conversation_length_query.filter(Conversation.created_at >= cutoff_date)
+
+                conversation_lengths = [
+                    msg_count for _, msg_count in conversation_length_query.group_by(Conversation.id).all()
+                ]
+                length_df = pd.DataFrame(build_conversation_length_rows(conversation_lengths))
                 
                 # Create dataframe for message roles
                 role_data = []

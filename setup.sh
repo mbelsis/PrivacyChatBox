@@ -42,6 +42,34 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+set_env_var() {
+    local key="$1"
+    local value="$2"
+    python - "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+
+key = sys.argv[1]
+value = sys.argv[2]
+path = Path(".env")
+lines = []
+if path.exists():
+    lines = path.read_text(encoding="utf-8").splitlines()
+
+updated = False
+for index, line in enumerate(lines):
+    if line.startswith(f"{key}="):
+        lines[index] = f"{key}={value}"
+        updated = True
+        break
+
+if not updated:
+    lines.append(f"{key}={value}")
+
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+}
+
 # Main setup function
 main() {
     section "PrivacyChatBoX Setup Script"
@@ -238,7 +266,8 @@ setup_database() {
         read -p "Database user (default: postgres): " db_user
         db_user=${db_user:-postgres}
         
-        read -p "Database password: " db_password
+        read -rsp "Database password: " db_password
+        echo ""
         
         read -p "Database host (default: localhost): " db_host
         db_host=${db_host:-localhost}
@@ -249,12 +278,12 @@ setup_database() {
         info "Creating database $db_name..."
         
         # Check if the database already exists
-        if psql -h $db_host -p $db_port -U $db_user -lqt | cut -d \| -f 1 | grep -qw $db_name; then
+        if PGPASSWORD="$db_password" psql -h "$db_host" -p "$db_port" -U "$db_user" -lqt | cut -d \| -f 1 | grep -qw "$db_name"; then
             warning "Database $db_name already exists."
             read -p "Do you want to drop and recreate it? (y/n): " drop_db
             
             if [ "$drop_db" == "y" ]; then
-                PGPASSWORD=$db_password psql -h $db_host -p $db_port -U $db_user -c "DROP DATABASE $db_name;"
+                PGPASSWORD="$db_password" psql -h "$db_host" -p "$db_port" -U "$db_user" -c "DROP DATABASE $db_name;"
                 success "Database $db_name dropped"
             else
                 success "Using existing database $db_name"
@@ -264,7 +293,7 @@ setup_database() {
         fi
         
         # Create the database
-        PGPASSWORD=$db_password psql -h $db_host -p $db_port -U $db_user -c "CREATE DATABASE $db_name;"
+        PGPASSWORD="$db_password" psql -h "$db_host" -p "$db_port" -U "$db_user" -c "CREATE DATABASE $db_name;"
         
         if [ $? -eq 0 ]; then
             success "Database $db_name created"
@@ -273,7 +302,7 @@ setup_database() {
             export DATABASE_URL="postgresql://$db_user:$db_password@$db_host:$db_port/$db_name"
             
             # Add DATABASE_URL to .env file
-            echo "DATABASE_URL=postgresql://$db_user:$db_password@$db_host:$db_port/$db_name" > .env
+            set_env_var "DATABASE_URL" "postgresql://$db_user:$db_password@$db_host:$db_port/$db_name"
             
             success "Database URL set in .env file"
         else
@@ -341,27 +370,31 @@ setup_env_variables() {
         echo "" >> .env
         echo "# AI Provider API Keys" >> .env
         
-        read -p "OpenAI API Key (press Enter to skip): " openai_key
+        read -rsp "OpenAI API Key (press Enter to skip): " openai_key
+        echo ""
         if [ -n "$openai_key" ]; then
-            echo "OPENAI_API_KEY=$openai_key" >> .env
+            set_env_var "OPENAI_API_KEY" "$openai_key"
             success "Added OpenAI API Key"
         fi
         
-        read -p "Anthropic Claude API Key (press Enter to skip): " claude_key
+        read -rsp "Anthropic Claude API Key (press Enter to skip): " claude_key
+        echo ""
         if [ -n "$claude_key" ]; then
-            echo "ANTHROPIC_API_KEY=$claude_key" >> .env
+            set_env_var "ANTHROPIC_API_KEY" "$claude_key"
             success "Added Anthropic Claude API Key"
         fi
         
-        read -p "Google Gemini API Key (press Enter to skip): " gemini_key
+        read -rsp "Google Gemini API Key (press Enter to skip): " gemini_key
+        echo ""
         if [ -n "$gemini_key" ]; then
-            echo "GOOGLE_API_KEY=$gemini_key" >> .env
+            set_env_var "GOOGLE_API_KEY" "$gemini_key"
             success "Added Google Gemini API Key"
         fi
         
-        read -p "SerpAPI Key for web search (press Enter to skip): " serpapi_key
+        read -rsp "SerpAPI Key for web search (press Enter to skip): " serpapi_key
+        echo ""
         if [ -n "$serpapi_key" ]; then
-            echo "SERPAPI_KEY=$serpapi_key" >> .env
+            set_env_var "SERPAPI_KEY" "$serpapi_key"
             success "Added SerpAPI Key"
         fi
     else
@@ -375,17 +408,18 @@ setup_env_variables() {
         echo "# Azure AD Authentication" >> .env
         
         read -p "Azure Client ID: " azure_client_id
-        echo "AZURE_CLIENT_ID=$azure_client_id" >> .env
-        
-        read -p "Azure Client Secret: " azure_client_secret
-        echo "AZURE_CLIENT_SECRET=$azure_client_secret" >> .env
+        set_env_var "AZURE_CLIENT_ID" "$azure_client_id"
+
+        read -rsp "Azure Client Secret: " azure_client_secret
+        echo ""
+        set_env_var "AZURE_CLIENT_SECRET" "$azure_client_secret"
         
         read -p "Azure Tenant ID: " azure_tenant_id
-        echo "AZURE_TENANT_ID=$azure_tenant_id" >> .env
+        set_env_var "AZURE_TENANT_ID" "$azure_tenant_id"
         
         read -p "Azure Redirect URI (default: http://localhost:5000/): " azure_redirect_uri
         azure_redirect_uri=${azure_redirect_uri:-http://localhost:5000/}
-        echo "AZURE_REDIRECT_URI=$azure_redirect_uri" >> .env
+        set_env_var "AZURE_REDIRECT_URI" "$azure_redirect_uri"
         
         success "Added Azure AD configuration"
     fi
@@ -397,16 +431,17 @@ setup_env_variables() {
         echo "# Microsoft DLP Integration" >> .env
         
         read -p "Microsoft Client ID: " ms_client_id
-        echo "MS_CLIENT_ID=$ms_client_id" >> .env
-        
-        read -p "Microsoft Client Secret: " ms_client_secret
-        echo "MS_CLIENT_SECRET=$ms_client_secret" >> .env
+        set_env_var "MS_CLIENT_ID" "$ms_client_id"
+
+        read -rsp "Microsoft Client Secret: " ms_client_secret
+        echo ""
+        set_env_var "MS_CLIENT_SECRET" "$ms_client_secret"
         
         read -p "Microsoft Tenant ID: " ms_tenant_id
-        echo "MS_TENANT_ID=$ms_tenant_id" >> .env
+        set_env_var "MS_TENANT_ID" "$ms_tenant_id"
         
         read -p "Microsoft DLP Endpoint ID: " ms_dlp_endpoint_id
-        echo "MS_DLP_ENDPOINT_ID=$ms_dlp_endpoint_id" >> .env
+        set_env_var "MS_DLP_ENDPOINT_ID" "$ms_dlp_endpoint_id"
         
         success "Added Microsoft DLP configuration"
     fi
@@ -420,7 +455,8 @@ run_migrations() {
     
     if [ -z "$DATABASE_URL" ]; then
         if [ -f ".env" ]; then
-            source <(grep -v '^#' .env | sed -E 's/(.*)=(.*)/export \1="\2"/')
+            DATABASE_URL=$(python -c "from dotenv import dotenv_values; print(dotenv_values('.env').get('DATABASE_URL',''))")
+            export DATABASE_URL
         fi
     fi
     

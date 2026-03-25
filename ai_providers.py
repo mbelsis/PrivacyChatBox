@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import copy
+from types import SimpleNamespace
 from typing import Dict, Any, Optional, List, Generator, Union
 import streamlit as st
 import requests
@@ -13,7 +15,7 @@ from anthropic import Anthropic
 from google.generativeai import GenerativeModel
 import google.generativeai as genai
 
-def get_user_settings(user_id: int) -> Optional[Settings]:
+def get_user_settings(user_id: int) -> Optional[SimpleNamespace]:
     """Get user settings from the database"""
     try:
         with session_scope() as session:
@@ -21,7 +23,7 @@ def get_user_settings(user_id: int) -> Optional[Settings]:
             
             # If we found settings, create a copy of important attributes to avoid detached instance errors
             if settings:
-                return Settings(
+                return SimpleNamespace(
                     id=settings.id,
                     user_id=settings.user_id,
                     llm_provider=settings.llm_provider,
@@ -41,7 +43,7 @@ def get_user_settings(user_id: int) -> Optional[Settings]:
                     scan_level=settings.scan_level,
                     auto_anonymize=settings.auto_anonymize,
                     disable_scan_for_local_model=settings.disable_scan_for_local_model,
-                    custom_patterns=settings.custom_patterns,
+                    custom_patterns=list(settings.get_custom_patterns()),
                     enable_ms_dlp=getattr(settings, 'enable_ms_dlp', True),
                     ms_dlp_sensitivity_threshold=getattr(settings, 'ms_dlp_sensitivity_threshold', 'confidential')
                 )
@@ -188,7 +190,8 @@ def get_ai_response(
     stream: bool = True,
     override_model: Optional[str] = None,
     override_provider: Optional[str] = None,
-    bypass_privacy_scan: bool = False
+    bypass_privacy_scan: bool = False,
+    input_already_processed: bool = False
 ) -> Union[str, Generator[str, None, None]]:
     """
     Get a response from the configured AI model
@@ -210,9 +213,8 @@ def get_ai_response(
     if not settings:
         return "Error: User settings not found"
     
-    # Create a copy of settings to avoid modifying the original
-    import copy
-    settings_copy = copy.copy(settings)
+    # Create a copy of settings to avoid modifying the original.
+    settings_copy = SimpleNamespace(**copy.deepcopy(vars(settings)))
     
     # Override provider if specified
     if override_provider and override_provider.strip():
@@ -232,10 +234,9 @@ def get_ai_response(
     provider = settings_copy.llm_provider
     if provider == "local" and settings_copy.disable_scan_for_local_model:
         bypass_privacy_scan = True
-        print("Privacy scanning bypassed for local model as per user settings")
     
     # Check if we need to apply privacy scanning to the messages
-    if not bypass_privacy_scan and len(messages) > 0:
+    if not input_already_processed and not bypass_privacy_scan and len(messages) > 0:
         from privacy_scanner import scan_text, anonymize_text
         
         # Only scan user messages
@@ -245,13 +246,10 @@ def get_ai_response(
                 if settings_copy.auto_anonymize:
                     anonymized_text, detected_patterns = anonymize_text(user_id, message["content"])
                     if detected_patterns:
-                        print(f"Anonymized sensitive content in message: {detected_patterns}")
                         messages[i]["content"] = anonymized_text
                 else:
                     # Just scan for logging purposes
-                    has_sensitive, detected_patterns = scan_text(user_id, message["content"])
-                    if has_sensitive:
-                        print(f"Sensitive content detected in message: {detected_patterns}")
+                    scan_text(user_id, message["content"])
     
     # Route to appropriate provider
     if provider == "openai":
@@ -282,9 +280,6 @@ def get_openai_response(
     client = openai.OpenAI(api_key=api_key)
     
     try:
-        # Debug logging to show messages before API call
-        print(f"OpenAI API call with messages: {json.dumps(messages, indent=2)}")
-        
         # Simplify: Use the messages as provided without modifying them
         response = client.chat.completions.create(
             model=model,
@@ -340,15 +335,12 @@ def get_claude_response(
             })
     
     try:
-        # Debug logging
-        print(f"Claude API call with messages: {json.dumps(claude_messages, indent=2)}")
-        print(f"Claude API system content: {system_content}")
-        
         # Create completion request
         response = client.messages.create(
             model=model,
             messages=claude_messages,
             system=system_content,
+            max_tokens=1500,
             stream=stream
         )
         
@@ -356,8 +348,10 @@ def get_claude_response(
             # Return a generator that yields chunks of the response
             def response_generator():
                 for chunk in response:
-                    if chunk.delta.text:
-                        yield chunk.delta.text
+                    if getattr(chunk, "type", "") == "content_block_delta":
+                        text_delta = getattr(getattr(chunk, "delta", None), "text", None)
+                        if text_delta:
+                            yield text_delta
             
             return response_generator()
         else:
@@ -424,17 +418,12 @@ def get_gemini_response(
             # Add a confirmation from the model to acknowledge the role
             gemini_messages.insert(1, {"role": "model", "parts": ["I understand and will follow your instructions."]})
         
-        # Debug logging for Gemini
-        print(f"Gemini API call with messages: {json.dumps(gemini_messages, indent=2)}")
-        
         # Create chat session with the enhanced history
         chat = gemini_model.start_chat(history=gemini_messages[:-1] if gemini_messages else [])
         
         # Get response
         if stream:
             last_message = gemini_messages[-1]["parts"][0] if gemini_messages else "Hello"
-            print(f"Sending message to Gemini: {last_message}")
-            
             response = chat.send_message(
                 last_message,
                 stream=True
@@ -448,8 +437,6 @@ def get_gemini_response(
             return response_generator()
         else:
             last_message = gemini_messages[-1]["parts"][0] if gemini_messages else "Hello"
-            print(f"Sending message to Gemini: {last_message}")
-            
             response = chat.send_message(
                 last_message,
                 stream=False
@@ -514,15 +501,12 @@ def get_local_response(
         # Add final prompt for response
         prompt += "ASSISTANT: "
         
-        # Log the prompt for debugging
-        print(f"Local LLM prompt:\n{prompt}")
-        
         if stream:
             def response_generator():
                 # Generate tokens in streaming mode
                 response = ""
-                for output in model.generate(
-                    prompt,
+                for output in model.create_completion(
+                    prompt=prompt,
                     max_tokens=1024,
                     stop=["USER:", "\nUSER", "SYSTEM:"],
                     temperature=settings.local_model_temperature or 0.7,
@@ -531,22 +515,18 @@ def get_local_response(
                     chunk = output["choices"][0]["text"]
                     response += chunk
                     yield chunk
-                
-                # Log the complete response for debugging
-                print(f"Complete local LLM response: {response}")
             
             return response_generator()
         else:
             # Generate complete response at once
-            response = model.generate(
-                prompt,
+            response = model.create_completion(
+                prompt=prompt,
                 max_tokens=1024,
                 stop=["USER:", "\nUSER", "SYSTEM:"],
                 temperature=settings.local_model_temperature or 0.7
             )
             
             result = response["choices"][0]["text"]
-            print(f"Complete local LLM response: {result}")
             return result
     
     except Exception as e:

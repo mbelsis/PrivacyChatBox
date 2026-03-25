@@ -9,7 +9,8 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - models_data:/app/models  # Persist local LLM models
     environment:
@@ -19,9 +20,10 @@ services:
       - PGPASSWORD=postgres
       - PGDATABASE=privacychatbox
       - PGPORT=5432
+      - ALLOW_SELF_REGISTRATION=false
       # You can add other environment variables here
       # - OPENAI_API_KEY=your_openai_key
-      # - CLAUDE_API_KEY=your_claude_key
+      # - ANTHROPIC_API_KEY=your_claude_key
       # - GEMINI_API_KEY=your_gemini_key
       # - SERPAPI_KEY=your_serpapi_key
       # - MS_TENANT_ID=your_tenant_id
@@ -42,6 +44,12 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=privacychatbox
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d privacychatbox"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
 volumes:
   postgres_data:  # Persist database data

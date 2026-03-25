@@ -7,6 +7,7 @@ import os
 import json
 import shutil
 import hashlib
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 import requests
 from tqdm import tqdm
@@ -60,6 +61,15 @@ DEFAULT_MODELS = {
     }
 }
 
+
+def compute_md5(file_path: str, chunk_size: int = 1024 * 1024) -> str:
+    """Compute a file MD5 without loading the whole file into memory."""
+    digest = hashlib.md5()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 def ensure_models_directory() -> str:
     """
     Ensure the models directory exists and return its path
@@ -108,8 +118,7 @@ def download_model(model_filename: str, force: bool = False) -> Optional[str]:
     if os.path.exists(model_path) and not force:
         # Verify integrity
         st.info(f"Model already exists at {model_path}. Verifying integrity...")
-        with open(model_path, 'rb') as f:
-            file_hash = hashlib.md5(f.read()).hexdigest()
+        file_hash = compute_md5(model_path)
         
         if file_hash == model_info.get('md5'):
             st.success(f"Model integrity verified. Ready to use.")
@@ -128,11 +137,10 @@ def download_model(model_filename: str, force: bool = False) -> Optional[str]:
     
     try:
         # Stream download with progress bar
-        response = requests.get(url, stream=True)
-        total_size = int(response.headers.get('content-length', 0))
-        
-        # Create a temporary file for downloading
         temp_path = model_path + ".download"
+        response = requests.get(url, stream=True, timeout=(10, 120))
+        response.raise_for_status()
+        total_size = int(response.headers.get('content-length', 0))
         
         with open(temp_path, 'wb') as f:
             with tqdm(total=total_size, unit='B', unit_scale=True, desc=model_filename) as pbar:
@@ -142,8 +150,7 @@ def download_model(model_filename: str, force: bool = False) -> Optional[str]:
                         pbar.update(len(chunk))
         
         # Verify download
-        with open(temp_path, 'rb') as f:
-            file_hash = hashlib.md5(f.read()).hexdigest()
+        file_hash = compute_md5(temp_path)
         
         if file_hash == model_info.get('md5'):
             # Move to final location
@@ -158,7 +165,7 @@ def download_model(model_filename: str, force: bool = False) -> Optional[str]:
     except Exception as e:
         st.error(f"Error downloading model: {str(e)}")
         # Clean up partial download
-        if os.path.exists(temp_path):
+        if 'temp_path' in locals() and os.path.exists(temp_path):
             os.remove(temp_path)
         return None
 
@@ -181,10 +188,9 @@ def list_available_models() -> Dict[str, Dict[str, Any]]:
         verified = False
         if is_downloaded:
             try:
-                with open(model_path, 'rb') as f:
-                    file_hash = hashlib.md5(f.read()).hexdigest()
+                file_hash = compute_md5(model_path)
                 verified = file_hash == info.get('md5')
-            except:
+            except Exception:
                 verified = False
         
         result[filename] = {
@@ -277,7 +283,11 @@ def show_model_download_ui() -> Optional[str]:
         if uploaded_file is not None:
             # Save the uploaded file
             models_dir = ensure_models_directory()
-            model_path = os.path.join(models_dir, uploaded_file.name)
+            safe_name = Path(uploaded_file.name).name
+            if not safe_name.lower().endswith(".gguf"):
+                st.error("Only .gguf model files are supported.")
+                return selected_model_path
+            model_path = os.path.join(models_dir, safe_name)
             
             with open(model_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
