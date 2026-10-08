@@ -32,7 +32,7 @@ def show():
     st.title("📜 Conversation History & Analytics")
     
     # Get user information
-    user_id = st.session_state.user_id
+    user_id = st.session_state.get("user_id")
     user_role = st.session_state.get("role", "user")
     is_admin = user_role == "admin"
     

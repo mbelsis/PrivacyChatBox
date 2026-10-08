@@ -34,7 +34,7 @@ def show():
     st.title("⚙️ Settings")
     
     # Get user information
-    user_id = st.session_state.user_id
+    user_id = st.session_state.get("user_id")
     if not user_id:
         st.error("You must be logged in to access this page.")
         return

@@ -36,8 +36,8 @@ def show():
     st.title("📊 Advanced Analytics Dashboard")
     
     # Get user information
-    user_id = st.session_state.user_id
-    role = st.session_state.role
+    user_id = st.session_state.get("user_id")
+    role = st.session_state.get("role")
     
     if not user_id:
         st.error("You must be logged in to access this page.")
@@ -894,3 +894,12 @@ def show():
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No message role data available for the selected period.")
+
+# If the file is run directly, show the analytics interface
+if __name__ == "__main__" or "show" not in locals():
+    # Check if user is authenticated
+    if "authenticated" not in st.session_state or not st.session_state.authenticated:
+        st.error("You must be logged in to access this page.")
+        st.stop()
+    
+    show()

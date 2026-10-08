@@ -72,6 +72,13 @@ Current layout:
   chronological message ordering, zero-valued local model settings, text extraction for
   PDF/DOCX/XLSX/PPTX uploads, and the signed Azure AD OAuth state.
 
+- [`tests/test_streamlit_pages.py`](tests/test_streamlit_pages.py)
+  End-to-end page tests driven through Streamlit's `AppTest` harness against a
+  throw-away SQLite database: landing/registration/login, the chat sensitive-content
+  review flow, history with zero conversations, admin pages (including the delete-user
+  confirmation and privacy logs), analytics, model manager, role denial, and session
+  expiry. Skipped automatically when Streamlit is not installed.
+
 ## How The Tests Work
 
 The suite is mostly unit-style and logic-focused.
@@ -79,7 +86,7 @@ The suite is mostly unit-style and logic-focused.
 Design choices:
 
 - It uses an isolated SQLite test database for database-backed logic.
-- It avoids requiring a full Streamlit app run.
+- Pure-logic tests avoid a full Streamlit run; page tests use Streamlit's in-process `AppTest` harness.
 - It stubs selected external packages in `conftest.py` so the tests can run in lightweight environments.
 - It favors pure helper testing where possible, especially for logic extracted from page modules into [`page_logic.py`](page_logic.py).
 
@@ -142,7 +149,7 @@ Without these tests, many of the earlier bugs fixed in this repository could qui
 Example:
 
 ```text
-53 passed in 1.16s
+59 passed in 12.91s
 ```
 
 This means the currently covered logic still behaves as expected.
@@ -196,7 +203,7 @@ The repository already includes a GitHub Actions workflow at [`.github/workflows
 
 The main remaining gaps are:
 
-- full interactive Streamlit behavior
+- interactive browser behaviour (the page tests run Streamlit in-process, not in a browser)
 - external-service end-to-end integration
 - browser/UI rendering verification
 

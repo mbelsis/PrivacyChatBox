@@ -65,8 +65,8 @@ def create_sidebar(page_name=""):
             with col2:
                 st.image("assets/logo.png", width=160)
             # Title already included in the logo
-            safe_username = html.escape(str(st.session_state.username))
-            safe_role = html.escape(str(st.session_state.role))
+            safe_username = html.escape(str(st.session_state.get("username", "")))
+            safe_role = html.escape(str(st.session_state.get("role", "")))
             st.markdown(f"<div style='text-align:center; margin-bottom:10px;'>Welcome, <b>{safe_username}</b> ({safe_role})</div>", unsafe_allow_html=True)
             
             st.markdown("---")

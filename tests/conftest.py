@@ -1,5 +1,6 @@
 import sys
 import types
+import warnings
 
 import pytest
 from sqlalchemy import create_engine
@@ -22,7 +23,9 @@ def _noop(*args, **kwargs):
     return None
 
 
-if "streamlit" not in sys.modules:
+try:
+    import streamlit  # noqa: F401
+except ImportError:
     streamlit_stub = types.ModuleType("streamlit")
     streamlit_stub.session_state = SessionState()
     streamlit_stub.error = _noop
@@ -35,27 +38,33 @@ if "streamlit" not in sys.modules:
     streamlit_stub.sidebar = types.SimpleNamespace(warning=_noop)
     sys.modules["streamlit"] = streamlit_stub
 
-if "dotenv" not in sys.modules:
+try:
+    import dotenv  # noqa: F401
+except ImportError:
     dotenv_stub = types.ModuleType("dotenv")
     dotenv_stub.load_dotenv = _noop
     dotenv_stub.dotenv_values = lambda *args, **kwargs: {}
     sys.modules["dotenv"] = dotenv_stub
 
-if "openai" not in sys.modules:
+try:
+    import openai  # noqa: F401
+except ImportError:
     openai_stub = types.ModuleType("openai")
     openai_stub.OpenAI = object
     sys.modules["openai"] = openai_stub
 
-if "anthropic" not in sys.modules:
+try:
+    import anthropic  # noqa: F401
+except ImportError:
     anthropic_stub = types.ModuleType("anthropic")
     anthropic_stub.Anthropic = object
     sys.modules["anthropic"] = anthropic_stub
 
-if "google" not in sys.modules:
-    google_stub = types.ModuleType("google")
-    sys.modules["google"] = google_stub
-
-if "google.generativeai" not in sys.modules:
+try:
+    import google.generativeai  # noqa: F401
+except ImportError:
+    if "google" not in sys.modules:
+        sys.modules["google"] = types.ModuleType("google")
     google_genai_stub = types.ModuleType("google.generativeai")
     google_genai_stub.GenerativeModel = object
     google_genai_stub.configure = _noop
@@ -77,7 +86,9 @@ if "jose" not in sys.modules:
         jose_stub.jwt = types.SimpleNamespace()
         sys.modules["jose"] = jose_stub
 
-if "reportlab" not in sys.modules:
+try:
+    import reportlab  # noqa: F401
+except ImportError:
     reportlab = types.ModuleType("reportlab")
     reportlab_lib = types.ModuleType("reportlab.lib")
     reportlab_pagesizes = types.ModuleType("reportlab.lib.pagesizes")
@@ -108,6 +119,10 @@ if "reportlab" not in sys.modules:
     sys.modules["reportlab.lib.styles"] = reportlab_styles
     sys.modules["reportlab.platypus"] = reportlab_platypus
 
+
+# Real Streamlit warns when session_state is used outside ``streamlit run``; that is
+# expected for the pure-logic tests.
+warnings.filterwarnings("ignore", message=".*Session state does not function.*")
 
 import database
 from database import Base

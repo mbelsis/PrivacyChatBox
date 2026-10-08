@@ -46,8 +46,8 @@ def show():
     st.title("👑 Admin Panel")
     
     # Get user information
-    user_id = st.session_state.user_id
-    role = st.session_state.role
+    user_id = st.session_state.get("user_id")
+    role = st.session_state.get("role")
     
     # Check if user is admin
     if role != "admin":
@@ -655,6 +655,7 @@ MS_CLIENT_SECRET: ********
         
         # Get detection events based on filters with error handling
         events = []
+        formatted_events = []
         
         try:
             with session_scope() as session:
@@ -670,17 +671,16 @@ MS_CLIENT_SECRET: ********
                     # Order by timestamp
                     query = query.order_by(DetectionEvent.timestamp.desc())
                     
-                    # Limit results
+                    # Limit results and format inside the session: ``session_scope``
+                    # expires the instances on exit, so formatting afterwards fails.
                     events = query.limit(100).all()
+                    formatted_events = format_detection_events(events)
                 else:
                     st.error("Unable to connect to database. Please try again later.")
                     return
         except Exception as e:
             st.error(f"Error loading detection events: {str(e)}")
             return
-        
-        # Format events for display
-        formatted_events = format_detection_events(events)
         
         # Display events
         if formatted_events:
@@ -741,7 +741,7 @@ if __name__ == "__main__" or "show" not in locals():
         st.error("You must be logged in to access this page.")
         st.stop()
     
-    if "role" not in st.session_state or st.session_state.role != "admin":
+    if st.session_state.get("role") != "admin":
         st.error("You do not have permission to access this page.")
         st.stop()
     
