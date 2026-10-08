@@ -7,7 +7,7 @@ def test_anonymize_text_prefers_non_overlapping_matches(monkeypatch):
     monkeypatch.setattr(
         privacy_scanner,
         "scan_text",
-        lambda user_id, text: (True, {"custom": ["abcd", "abc"]}),
+        lambda user_id, text, **kwargs: (True, {"custom": ["abcd", "abc"]}),
     )
     monkeypatch.setattr(
         privacy_scanner,

@@ -69,8 +69,7 @@ PrivacyChatBoX/
 ├── .env                    # Environment variables (not in repo)
 ├── .streamlit/             # Streamlit configuration
 │   └── config.toml         # Streamlit configuration file
-├── requirements.txt        # Python dependencies
-├── pyproject.toml          # Project metadata
+├── pyproject.toml          # Project metadata and Python dependencies
 ├── migration_add_dlp_columns.py      # Microsoft DLP integration migration
 ├── migration_add_local_llm_columns.py # Local LLM settings migration
 ├── migration_pattern_levels.py       # Privacy pattern levels migration
@@ -236,7 +235,7 @@ The current test suite focuses on the highest-risk application logic, including:
 - migration commit behavior
 - history, analytics, and page-level data-shaping helpers
 
-A lightweight GitHub Actions workflow is included at [`.github/workflows/tests.yml`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/.github/workflows/tests.yml) so the same command runs automatically on pushes and pull requests.
+A lightweight GitHub Actions workflow is included at [`.github/workflows/tests.yml`](.github/workflows/tests.yml) so the same command runs automatically on pushes and pull requests.
 
 ### Initial Setup
 

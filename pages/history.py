@@ -153,6 +153,9 @@ def show():
             
             # Add user filtering for admins
             session = get_session()
+            if not session:
+                st.error("Unable to connect to database. Please try again later.")
+                return
             users = {user.id: user.username for user in session.query(User).all()}
             session.close()
             
@@ -479,14 +482,15 @@ def show():
             user_fig.update_layout(margin=dict(t=50, b=50, l=20, r=20))
             st.plotly_chart(user_fig, use_container_width=True)
     
+    # Nothing to list: stop before building the table/select box. Indexing the select box
+    # result on an empty option list used to raise ``KeyError: None``.
+    if not conversations:
+        if is_admin:
+            st.info("No conversations match the selected filters.")
+        return
+
     # Create a dataframe from the conversations
     conversation_data = []
-    
-    # Get usernames for admin view
-    if is_admin:
-        session = get_session()
-        users = {user.id: user.username for user in session.query(User).all()}
-        session.close()
     
     # Check for privacy alerts in conversations
     # First, get relevant detection events to find which conversations have privacy issues
@@ -627,6 +631,11 @@ def show():
                         # Provide download link
                         with open(pdf_path, "rb") as pdf_file:
                             pdf_bytes = pdf_file.read()
+                        try:
+                            import os
+                            os.remove(pdf_path)
+                        except OSError:
+                            pass
                         
                         st.download_button(
                             label="Download PDF",
@@ -638,29 +647,36 @@ def show():
                         st.error(f"Error generating PDF: {str(e)}")
             
             with col3:
-                # Delete conversation with confirmation
+                # Delete conversation with confirmation. The confirmation state has to live
+                # in session_state: a button nested inside another button's ``if`` is never
+                # reached on the rerun triggered by clicking it.
                 if st.button("Delete Conversation", key="delete_btn"):
-                    st.warning(f"Are you sure you want to delete '{selected_conversation['title']}'? This action cannot be undone.")
-                    
-                    confirm_col1, confirm_col2 = st.columns(2)
-                    
-                    with confirm_col1:
-                        if st.button("Yes, delete it", key="confirm_delete"):
-                            # Delete the conversation
-                            success = delete_conversation(selected_id, requesting_user_id=user_id)
-                            
-                            if success:
-                                st.success("Conversation deleted successfully.")
-                                # Clear current conversation if it was the deleted one
-                                if st.session_state.get("current_conversation_id") == selected_id:
-                                    st.session_state.current_conversation_id = None
-                                st.rerun()
-                            else:
-                                st.error("Failed to delete conversation.")
-                    
-                    with confirm_col2:
-                        if st.button("Cancel", key="cancel_delete"):
+                    st.session_state["pending_delete_conversation_id"] = selected_id
+
+            if st.session_state.get("pending_delete_conversation_id") == selected_id:
+                st.warning(f"Are you sure you want to delete '{selected_conversation['title']}'? This action cannot be undone.")
+                
+                confirm_col1, confirm_col2 = st.columns(2)
+                
+                with confirm_col1:
+                    if st.button("Yes, delete it", key="confirm_delete"):
+                        st.session_state.pop("pending_delete_conversation_id", None)
+                        # Delete the conversation
+                        success = delete_conversation(selected_id, requesting_user_id=user_id)
+                        
+                        if success:
+                            st.success("Conversation deleted successfully.")
+                            # Clear current conversation if it was the deleted one
+                            if st.session_state.get("current_conversation_id") == selected_id:
+                                st.session_state.current_conversation_id = None
                             st.rerun()
+                        else:
+                            st.error("Failed to delete conversation.")
+                
+                with confirm_col2:
+                    if st.button("Cancel", key="cancel_delete"):
+                        st.session_state.pop("pending_delete_conversation_id", None)
+                        st.rerun()
             
             # Display conversation preview for user's own conversations
             st.subheader("Conversation Preview")
@@ -770,12 +786,16 @@ def show():
                     
                     # Admin actions for other users' conversations - limited to delete only
                     if st.button("Delete Conversation (Admin Action)", key="admin_delete_btn"):
+                        st.session_state["pending_admin_delete_conversation_id"] = selected_id
+
+                    if st.session_state.get("pending_admin_delete_conversation_id") == selected_id:
                         st.warning(f"Are you sure you want to delete this conversation? This action cannot be undone.")
                         
                         confirm_col1, confirm_col2 = st.columns(2)
                         
                         with confirm_col1:
                             if st.button("Yes, delete it", key="admin_confirm_delete"):
+                                st.session_state.pop("pending_admin_delete_conversation_id", None)
                                 # Delete the conversation
                                 success = delete_conversation(selected_id, allow_admin_access=True)
                                 
@@ -787,6 +807,7 @@ def show():
                         
                         with confirm_col2:
                             if st.button("Cancel", key="admin_cancel_delete"):
+                                st.session_state.pop("pending_admin_delete_conversation_id", None)
                                 st.rerun()
                 finally:
                     session.close()

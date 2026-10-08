@@ -70,7 +70,7 @@ def init_auth():
                 claude_api_key="",
                 claude_model="claude-3-5-sonnet-20241022",
                 gemini_api_key="",
-                gemini_model="gemini-pro",
+                gemini_model="gemini-1.5-pro",
                 serpapi_key="",
                 local_model_path="",
                 scan_enabled=True,

@@ -232,72 +232,86 @@ def add_message_to_conversation(
             - ID of the created message (0 if creation failed due to blocked files)
             - Error message if any files were blocked, None otherwise
     """
+    saved_files: List[Dict[str, Any]] = []
+
+    def _cleanup_saved_files() -> None:
+        for saved in saved_files:
+            try:
+                if saved["path"] and os.path.exists(saved["path"]):
+                    os.remove(saved["path"])
+            except OSError:
+                pass
+
     try:
-        with session_scope() as session:
-            # Create new message
-            message = Message(
-                conversation_id=conversation_id,
-                role=role,
-                content=content
-            )
-            
-            session.add(message)
-            # Flush to get the message ID
-            session.flush()
-            message_id = message.id
-            
-            error_message = None
-            
-            # Add files if provided
-            if uploaded_files:
-                # Get user ID from conversation for DLP checks
-                user_id = None
-                if MS_DLP_AVAILABLE:
+        # Stage 1: persist uploads to disk and run DLP checks BEFORE touching the database.
+        # Returning from inside ``session_scope`` commits the transaction, so a DLP block
+        # discovered after the message row was added used to leave a half-saved message.
+        if uploaded_files:
+            user_id = None
+            if MS_DLP_AVAILABLE:
+                with session_scope() as session:
                     conversation = session.query(Conversation).filter(
                         Conversation.id == conversation_id
                     ).first()
                     if conversation:
                         user_id = conversation.user_id
-                
-                for uploaded_file in uploaded_files:
-                    content_override = None
-                    original_name = getattr(uploaded_file, "name", "uploaded_file")
-                    if isinstance(uploaded_file, dict):
-                        original_name = uploaded_file.get("name", original_name)
-                        mime_type = uploaded_file.get("mime_type")
-                        content_override = uploaded_file.get("content_bytes")
-                    else:
-                        mime_type = None
 
-                    file_path, detected_mime_type, file_size = save_uploaded_file(uploaded_file, content_override)
-                    mime_type = mime_type or detected_mime_type
-                    
-                    # Check for Microsoft sensitivity labels if DLP integration is available
-                    if MS_DLP_AVAILABLE and user_id and is_dlp_integration_enabled(user_id):
-                        file_allowed, dlp_error = scan_file_for_sensitivity(
-                            user_id=user_id,
-                            file_path=file_path,
-                            file_name=original_name,
-                            file_mime=mime_type
-                        )
-                        
-                        if not file_allowed:
-                            # File blocked by DLP
-                            # The session will be rolled back automatically by the context manager
-                            return 0, dlp_error
-                    
-                    # File is allowed, continue with adding it
-                    file = File(
-                        message_id=message_id,
-                        original_name=original_name,
-                        path=file_path,
-                        mime_type=mime_type,
-                        size=file_size,
-                        scan_result={}
+            dlp_enabled = bool(MS_DLP_AVAILABLE and user_id and is_dlp_integration_enabled(user_id))
+
+            for uploaded_file in uploaded_files:
+                content_override = None
+                original_name = getattr(uploaded_file, "name", "uploaded_file")
+                if isinstance(uploaded_file, dict):
+                    original_name = uploaded_file.get("name", original_name)
+                    mime_type = uploaded_file.get("mime_type")
+                    content_override = uploaded_file.get("content_bytes")
+                else:
+                    mime_type = None
+
+                file_path, detected_mime_type, file_size = save_uploaded_file(uploaded_file, content_override)
+                mime_type = mime_type or detected_mime_type
+                saved_files.append({
+                    "original_name": original_name,
+                    "path": file_path,
+                    "mime_type": mime_type,
+                    "size": file_size,
+                })
+
+                # Check for Microsoft sensitivity labels if DLP integration is available
+                if dlp_enabled:
+                    file_allowed, dlp_error = scan_file_for_sensitivity(
+                        user_id=user_id,
+                        file_path=file_path,
+                        file_name=original_name,
+                        file_mime=mime_type
                     )
-                    
-                    session.add(file)
-            
+
+                    if not file_allowed:
+                        # File blocked by DLP: nothing has been written to the database yet.
+                        _cleanup_saved_files()
+                        return 0, dlp_error
+
+        # Stage 2: everything passed, write the message and its files atomically.
+        with session_scope() as session:
+            message = Message(
+                conversation_id=conversation_id,
+                role=role,
+                content=content
+            )
+            session.add(message)
+            session.flush()
+            message_id = message.id
+
+            for saved in saved_files:
+                session.add(File(
+                    message_id=message_id,
+                    original_name=saved["original_name"],
+                    path=saved["path"],
+                    mime_type=saved["mime_type"],
+                    size=saved["size"],
+                    scan_result={}
+                ))
+
             # Update conversation information
             conversation = session.query(Conversation).filter(
                 Conversation.id == conversation_id
@@ -311,8 +325,9 @@ def add_message_to_conversation(
                     new_title = content[:30] + "..." if len(content) > 30 else content
                     conversation.title = new_title
             
-            return message_id, error_message
+            return message_id, None
     except Exception as e:
+        _cleanup_saved_files()
         print(f"Error adding message to conversation: {str(e)}")
         return 0, f"Error: {str(e)}"
 

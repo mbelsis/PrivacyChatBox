@@ -134,6 +134,12 @@ def show():
         st.session_state.current_conversation_id = None
         st.rerun()
         return
+
+    # A pending sensitive-content review belongs to exactly one conversation. If the user
+    # switched conversations, drop it so the chat input is not left disabled forever.
+    stale_pending = st.session_state.get("pending_chat_submission")
+    if stale_pending and stale_pending.get("conversation_id") != conversation_id:
+        st.session_state.pop("pending_chat_submission", None)
     
     # More compact layout with selectors and chat in a single continuous view
     st.container().markdown("""
@@ -450,10 +456,12 @@ def show():
     # Process user message in the chat container
     with chat_container:
         pending_submission = st.session_state.get("pending_chat_submission")
-        if pending_submission and pending_submission.get("conversation_id") != conversation_id:
-            pending_submission = None
 
-        if pending_submission and pending_submission.get("conversation_id") == conversation_id:
+        final_message = None
+        file_payloads = []
+
+        if pending_submission:
+            # --- Path A: the user is resolving a sensitive-content review ---
             st.warning("Sensitive information was detected in your last submission.")
             st.write("Detected patterns:")
             for pattern_type, matches in pending_submission.get("detected", {}).items():
@@ -495,12 +503,9 @@ def show():
                         st.caption(f"File: {file_payload['name']}")
 
             st.session_state.pop("pending_chat_submission", None)
-            uploaded_file_records = build_uploaded_file_records(file_payloads)
-        else:
-            uploaded_file_records = []
 
-        # Process message if one exists
-        if user_message:
+        elif user_message:
+            # --- Path B: a brand-new message was submitted ---
             # Create a placeholder for the user message that will be replaced if anonymized
             user_message_container = st.container()
             
@@ -514,7 +519,6 @@ def show():
                         st.caption(f"File: {file.name}")
             
             file_payloads = build_file_payloads(uploaded_files)
-            uploaded_file_records = build_uploaded_file_records(file_payloads)
 
             # Scan message for sensitive information
             has_sensitive = False
@@ -566,12 +570,11 @@ def show():
                         "detected": detected,
                     }
                     st.rerun()
-            
-        if not user_message and not pending_submission:
+        else:
+            # Nothing to do on this run.
             return
 
-        if not uploaded_file_records and 'file_payloads' in locals():
-            uploaded_file_records = build_uploaded_file_records(file_payloads)
+        uploaded_file_records = build_uploaded_file_records(file_payloads)
 
         # Add message to database
         message_id, dlp_error = add_message_to_conversation(
@@ -734,6 +737,10 @@ def show():
             # Update the final response
             response_container.markdown(full_response)
         
+        if provider_error:
+            # A configuration problem is not part of the conversation; keep it out of history.
+            st.stop()
+
         # Save the assistant message to the database
         message_id, _ = add_message_to_conversation(
             conversation_id=conversation_id,

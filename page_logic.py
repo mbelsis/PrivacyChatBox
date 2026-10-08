@@ -8,6 +8,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from utils import format_conversation_messages
 
 
+def _value_or_default(value: Any, default: Any) -> Any:
+    """Return ``default`` only when ``value`` is None.
+
+    Using ``value or default`` silently turns legitimate zero values
+    (``gpu_layers=0`` for CPU-only inference, ``temperature=0.0`` for
+    deterministic output) into the defaults.
+    """
+    return default if value is None else value
+
+
 def normalize_history_content(content: str) -> str:
     if not content:
         return ""
@@ -27,14 +37,14 @@ def build_chat_ai_messages(
 ) -> List[Dict[str, str]]:
     ai_messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
 
-    history_messages = [
+    # Sort before slicing so the history window really is the most recent turns.
+    history_messages = format_conversation_messages([
         message for message in conversation_messages
         if message.get("id") != current_message_id
-    ][-history_limit:]
+    ])[-history_limit:]
 
     if history_messages:
-        formatted_messages = format_conversation_messages(history_messages)
-        for message_dict in formatted_messages:
+        for message_dict in history_messages:
             if message_dict["role"] != "system":
                 ai_messages.append({
                     "role": message_dict["role"],
@@ -60,14 +70,10 @@ def get_local_model_settings_snapshot(settings: Any) -> Optional[Dict[str, Any]]
         return None
     return {
         "local_model_path": getattr(settings, "local_model_path", None),
-        "local_model_context_size": getattr(settings, "local_model_context_size", None) or 2048,
-        "local_model_gpu_layers": getattr(settings, "local_model_gpu_layers", None) or -1,
-        "local_model_temperature": getattr(settings, "local_model_temperature", None) or 0.7,
-        "disable_scan_for_local_model": (
-            getattr(settings, "disable_scan_for_local_model", None)
-            if getattr(settings, "disable_scan_for_local_model", None) is not None
-            else True
-        ),
+        "local_model_context_size": _value_or_default(getattr(settings, "local_model_context_size", None), 2048),
+        "local_model_gpu_layers": _value_or_default(getattr(settings, "local_model_gpu_layers", None), -1),
+        "local_model_temperature": _value_or_default(getattr(settings, "local_model_temperature", None), 0.7),
+        "disable_scan_for_local_model": _value_or_default(getattr(settings, "disable_scan_for_local_model", None), True),
     }
 
 
@@ -79,14 +85,10 @@ def merge_selected_model_snapshot(
     merged = dict(current_snapshot or {})
     merged.update({
         "local_model_path": selected_model,
-        "local_model_context_size": getattr(settings, "local_model_context_size", None) or 2048,
-        "local_model_gpu_layers": getattr(settings, "local_model_gpu_layers", None) or -1,
-        "local_model_temperature": getattr(settings, "local_model_temperature", None) or 0.7,
-        "disable_scan_for_local_model": (
-            getattr(settings, "disable_scan_for_local_model", None)
-            if getattr(settings, "disable_scan_for_local_model", None) is not None
-            else True
-        ),
+        "local_model_context_size": _value_or_default(getattr(settings, "local_model_context_size", None), 2048),
+        "local_model_gpu_layers": _value_or_default(getattr(settings, "local_model_gpu_layers", None), -1),
+        "local_model_temperature": _value_or_default(getattr(settings, "local_model_temperature", None), 0.7),
+        "disable_scan_for_local_model": _value_or_default(getattr(settings, "disable_scan_for_local_model", None), True),
     })
     return merged
 
@@ -382,13 +384,22 @@ def can_delete_user_account(
 
 
 def build_file_payloads(files: List[Any]) -> List[Dict[str, Any]]:
+    """Build scan/AI payloads for uploaded files.
+
+    Binary document formats (PDF, DOCX, XLSX, PPTX) are converted to text with the
+    extractors in ``file_processor``; decoding their raw bytes would produce garbage
+    that is neither scannable nor useful to the AI model.
+    """
+    from file_processor import extract_text_from_bytes
+
     payloads: List[Dict[str, Any]] = []
     for file in files or []:
         original_bytes = file.getvalue()
+        mime_type = file.type or "application/octet-stream"
         payloads.append({
             "name": file.name,
-            "mime_type": file.type or "application/octet-stream",
-            "content": original_bytes.decode("utf-8", errors="ignore"),
+            "mime_type": mime_type,
+            "content": extract_text_from_bytes(file.name, mime_type, original_bytes),
             "content_bytes": original_bytes,
         })
     return payloads

@@ -1,5 +1,6 @@
 import streamlit as st
 import html
+from utils_auth import check_session
 
 def create_sidebar(page_name=""):
     """
@@ -8,6 +9,11 @@ def create_sidebar(page_name=""):
     Args:
         page_name: Optional identifier for the current page to create unique button keys
     """
+    # Enforce session expiry on every page render. ``check_session`` clears the
+    # authentication keys when the stored expiry has passed.
+    if st.session_state.get("authenticated", False) and check_session() is None:
+        st.warning("Your session has expired. Please log in again.")
+
     # Fixed width CSS to prevent sidebar trembling
     fixed_width_css = """
     <style>
@@ -108,13 +114,10 @@ def create_sidebar(page_name=""):
                 tooltip = "Switch to Light Mode" if st.session_state.get("dark_mode", False) else "Switch to Dark Mode"
                 
                 if st.button(button_text, key=theme_key, help=tooltip):
-                    try:
-                        # Import toggle_dark_mode function from app.py
-                        from app import toggle_dark_mode
-                        toggle_dark_mode()
-                    except Exception:
-                        st.session_state.dark_mode = not st.session_state.get("dark_mode", False)
-                        st.rerun()
+                    # Toggle directly; importing app.py from a page would re-execute the
+                    # whole entry script (including st.set_page_config).
+                    st.session_state.dark_mode = not st.session_state.get("dark_mode", False)
+                    st.rerun()
             
             with logout_col:
                 logout_key = f"logout_button_{page_name}"

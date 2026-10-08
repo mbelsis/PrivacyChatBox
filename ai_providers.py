@@ -2,6 +2,7 @@ import os
 import json
 import time
 import copy
+import threading
 from types import SimpleNamespace
 from typing import Dict, Any, Optional, List, Generator, Union
 import streamlit as st
@@ -335,14 +336,18 @@ def get_claude_response(
             })
     
     try:
+        # Only pass ``system`` when one exists: the SDK rejects an explicit ``None``.
+        request_kwargs = {
+            "model": model,
+            "messages": claude_messages,
+            "max_tokens": 1500,
+            "stream": stream,
+        }
+        if system_content:
+            request_kwargs["system"] = system_content
+
         # Create completion request
-        response = client.messages.create(
-            model=model,
-            messages=claude_messages,
-            system=system_content,
-            max_tokens=1500,
-            stream=stream
-        )
+        response = client.messages.create(**request_kwargs)
         
         if stream:
             # Return a generator that yields chunks of the response
@@ -451,15 +456,44 @@ def get_gemini_response(
             return f"Error: The selected Gemini model '{model}' is not available. Please update your settings to use one of the available models: {available_models_str}"
         return f"Error calling Gemini API: {error_msg}"
 
+# Loaded llama.cpp models are expensive (seconds to minutes and gigabytes of RAM), so keep
+# the most recently used one instead of re-reading the file for every chat turn.
+_LOCAL_MODEL_CACHE: Dict[Any, Any] = {}
+_LOCAL_MODEL_LOCK = threading.Lock()
+
+
+def _coalesce(value: Any, default: Any) -> Any:
+    """Return ``default`` only for ``None``; ``0`` and ``0.0`` are legitimate settings."""
+    return default if value is None else value
+
+
+def _load_local_model(model_path: str, n_ctx: int, n_gpu_layers: int):
+    from llama_cpp import Llama
+
+    cache_key = (os.path.abspath(model_path), os.path.getmtime(model_path), n_ctx, n_gpu_layers)
+    with _LOCAL_MODEL_LOCK:
+        cached = _LOCAL_MODEL_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        model = Llama(
+            model_path=model_path,
+            n_ctx=n_ctx,
+            n_gpu_layers=n_gpu_layers,
+            verbose=False
+        )
+        # Keep a single model resident to bound memory usage.
+        _LOCAL_MODEL_CACHE.clear()
+        _LOCAL_MODEL_CACHE[cache_key] = model
+        return model
+
+
 def get_local_response(
     settings: Settings, 
     messages: List[Dict[str, str]], 
     stream: bool = True
 ) -> Union[str, Generator[str, None, None]]:
     """Get response from local LLM using llama-cpp-python"""
-    import os
-    from llama_cpp import Llama
-    
     # Get model path from settings
     model_path = settings.local_model_path
     
@@ -468,14 +502,15 @@ def get_local_response(
     
     if not os.path.exists(model_path):
         return f"Error: Local model file not found at {model_path}"
+
+    temperature = _coalesce(getattr(settings, "local_model_temperature", None), 0.7)
     
     try:
         # Initialize local model with settings from the user's configuration
-        model = Llama(
+        model = _load_local_model(
             model_path=model_path,
-            n_ctx=settings.local_model_context_size or 2048,  # Context length
-            n_gpu_layers=settings.local_model_gpu_layers or -1,  # GPU layers, -1 for all
-            verbose=False  # Set to True for debugging
+            n_ctx=_coalesce(getattr(settings, "local_model_context_size", None), 2048),
+            n_gpu_layers=_coalesce(getattr(settings, "local_model_gpu_layers", None), -1),
         )
         
         # Format messages into a prompt for the local model
@@ -509,7 +544,7 @@ def get_local_response(
                     prompt=prompt,
                     max_tokens=1024,
                     stop=["USER:", "\nUSER", "SYSTEM:"],
-                    temperature=settings.local_model_temperature or 0.7,
+                    temperature=temperature,
                     stream=True
                 ):
                     chunk = output["choices"][0]["text"]
@@ -523,7 +558,7 @@ def get_local_response(
                 prompt=prompt,
                 max_tokens=1024,
                 stop=["USER:", "\nUSER", "SYSTEM:"],
-                temperature=settings.local_model_temperature or 0.7
+                temperature=temperature
             )
             
             result = response["choices"][0]["text"]

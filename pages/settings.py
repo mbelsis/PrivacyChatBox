@@ -1,6 +1,7 @@
 import streamlit as st
 from style import apply_custom_css
 import os
+import uuid
 
 # Apply custom CSS to hide default menu
 apply_custom_css()
@@ -76,11 +77,12 @@ def show():
             "local": "Local Model"
         }
         
+        provider_keys = list(provider_options.keys())
         selected_provider = st.selectbox(
             "AI Provider",
-            options=list(provider_options.keys()),
+            options=provider_keys,
             format_func=lambda x: provider_options[x],
-            index=list(provider_options.keys()).index(settings.llm_provider)
+            index=provider_keys.index(settings.llm_provider) if settings.llm_provider in provider_keys else 0
         )
         
         # Get available models for the selected provider
@@ -451,23 +453,33 @@ def show():
         # Get existing custom patterns
         custom_patterns = normalize_custom_patterns(settings.custom_patterns)
         
+        def with_row_id(pattern):
+            row = dict(pattern)
+            row.setdefault("_uid", uuid.uuid4().hex)
+            return row
+
         # Initialize session state for patterns if it doesn't exist
         if "custom_patterns" not in st.session_state:
-            st.session_state.custom_patterns = [pattern.copy() for pattern in custom_patterns] if custom_patterns else []
+            st.session_state.custom_patterns = [with_row_id(pattern) for pattern in custom_patterns] if custom_patterns else []
         
         # Function to add a new pattern
         def add_pattern():
-            st.session_state.custom_patterns.append({"name": "", "pattern": "", "level": "standard"})
+            st.session_state.custom_patterns.append(with_row_id({"name": "", "pattern": "", "level": "standard"}))
         
         # Function to remove a pattern
-        def remove_pattern(index):
-            del st.session_state.custom_patterns[index]
+        def remove_pattern(row_id):
+            st.session_state.custom_patterns = [
+                pattern for pattern in st.session_state.custom_patterns if pattern.get("_uid") != row_id
+            ]
         
         # Display existing patterns
         for i, pattern in enumerate(st.session_state.custom_patterns):
             # Ensure pattern has a level attribute (backward compatibility)
             if "level" not in pattern:
                 st.session_state.custom_patterns[i]["level"] = "standard"
+            if "_uid" not in pattern:
+                st.session_state.custom_patterns[i]["_uid"] = uuid.uuid4().hex
+            row_id = st.session_state.custom_patterns[i]["_uid"]
                 
             col1, col2, col3, col4 = st.columns([3, 5, 2, 1])
             
@@ -475,14 +487,14 @@ def show():
                 st.session_state.custom_patterns[i]["name"] = st.text_input(
                     "Pattern Name",
                     value=pattern["name"],
-                    key=f"name_{i}"
+                    key=f"name_{row_id}"
                 )
             
             with col2:
                 st.session_state.custom_patterns[i]["pattern"] = st.text_input(
                     "Regex Pattern",
                     value=pattern["pattern"],
-                    key=f"pattern_{i}"
+                    key=f"pattern_{row_id}"
                 )
             
             with col3:
@@ -490,12 +502,12 @@ def show():
                     "Scan Level",
                     options=["standard", "strict"],
                     index=0 if pattern["level"] == "standard" else 1,
-                    key=f"level_{i}",
+                    key=f"level_{row_id}",
                     help="Standard (baseline) patterns are included in all scans. Strict patterns are only used in strict mode."
                 )
             
             with col4:
-                st.button("🗑️", key=f"remove_{i}", on_click=remove_pattern, args=(i,))
+                st.button("🗑️", key=f"remove_{row_id}", on_click=remove_pattern, args=(row_id,))
         
         # Add new pattern button
         st.button("Add Pattern", on_click=add_pattern)
@@ -532,21 +544,20 @@ def show():
             if invalid_patterns:
                 for invalid_pattern in invalid_patterns:
                     st.error(f"Invalid regex: {invalid_pattern}")
-                return
-            
-            success = update_user_settings(
-                user_id,
-                {
-                    "custom_patterns": valid_patterns
-                }
-            )
-            
-            if success:
-                st.session_state.custom_patterns = [pattern.copy() for pattern in valid_patterns]
-                st.success("Custom patterns saved.")
-                st.rerun()
             else:
-                st.error("Failed to save custom patterns.")
+                success = update_user_settings(
+                    user_id,
+                    {
+                        "custom_patterns": valid_patterns
+                    }
+                )
+                
+                if success:
+                    st.session_state.custom_patterns = [with_row_id(pattern) for pattern in valid_patterns]
+                    st.success("Custom patterns saved.")
+                    st.rerun()
+                else:
+                    st.error("Failed to save custom patterns.")
 
     # Account tab
     with account_tab:

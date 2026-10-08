@@ -14,9 +14,9 @@ DEFAULT_PATTERNS = [
     # Basic identifiers - Standard level
     {"name": "credit_card", "pattern": r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b", "level": "standard", "confidence": 0.95},
     {"name": "ssn", "pattern": r"\b(?!000|666|9\d{2})\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}\b", "level": "standard", "confidence": 0.95},
-    {"name": "email", "pattern": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "level": "standard", "confidence": 0.9},
+    {"name": "email", "pattern": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "level": "standard", "confidence": 0.9},
     {"name": "phone_number", "pattern": r"\b(?:\+?\d{1,3}[ -]?)?(?:\(?\d{2,4}\)?[ -]?)?\d{3,4}[ -]?\d{3,4}\b", "level": "standard", "confidence": 0.85},
-    {"name": "msisdn", "pattern": r"\+?[1-9]\d{6,14}\b", "level": "standard", "confidence": 0.9},
+    {"name": "msisdn", "pattern": r"(?<!\w)\+?[1-9]\d{6,14}\b", "level": "standard", "confidence": 0.9},
     {"name": "ip_address", "pattern": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "level": "standard", "confidence": 0.8},
     {"name": "date_of_birth", "pattern": r"\b(?:\d{2}[/-]\d{2}[/-]\d{4}|\d{4}[/-]\d{2}[/-]\d{2})\b", "level": "standard", "confidence": 0.8},
     {"name": "address", "pattern": r"\b\d{1,5}\s+(?:[A-Za-z]+\s?)+\s+(Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln)\b", "level": "standard", "confidence": 0.85},
@@ -58,6 +58,11 @@ DEFAULT_PATTERNS = [
     {"name": "greek_amka", "pattern": r"\b\d{11}\b", "level": "strict", "confidence": 0.6},
     {"name": "greek_tax_id", "pattern": r"\b\d{9}\b", "level": "strict", "confidence": 0.6}
 ]
+
+# Default confidence threshold. It must not exceed the lowest confidence assigned to a
+# built-in pattern, otherwise those patterns (bank_account, greek_amka, greek_tax_id)
+# can never match even though the UI advertises them as active in strict mode.
+DEFAULT_MINIMUM_CONFIDENCE = 0.6
 
 # Precompile all patterns at module load time
 COMPILED_PATTERNS = {}
@@ -110,9 +115,11 @@ def log_detection_event(user_id: int, action: str, detected: Dict[str, List[str]
 
     try:
         with session_scope() as session:
+            # Leave the timestamp to the database default (func.now()) so detection
+            # events and conversation timestamps come from the same clock. Mixing the
+            # application clock with the database clock breaks privacy-alert matching.
             detection_event = DetectionEvent(
                 user_id=user_id,
-                timestamp=datetime.now(),
                 action=action,
                 severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
                 detected_patterns=detected,
@@ -122,7 +129,7 @@ def log_detection_event(user_id: int, action: str, detected: Dict[str, List[str]
     except Exception as e:
         print(f"Error logging detection event: {str(e)}")
 
-def scan_text(user_id: int, text: str, minimum_confidence: float = 0.7, log_event: bool = True) -> Tuple[bool, Dict[str, List[str]]]:
+def scan_text(user_id: int, text: str, minimum_confidence: float = DEFAULT_MINIMUM_CONFIDENCE, log_event: bool = True) -> Tuple[bool, Dict[str, List[str]]]:
     """
     Scan text for sensitive information using precompiled regex patterns
     
@@ -288,7 +295,9 @@ def anonymize_text(user_id: int, text: str) -> Tuple[str, Dict[str, List[str]]]:
             - Anonymized text
             - Dictionary of detected patterns with type as key and list of matches as value
     """
-    sensitive_found, detected = scan_text(user_id, text)
+    # Scan without logging: this function records a single "anonymize" event below.
+    # Logging here as well would double-count every anonymized message.
+    sensitive_found, detected = scan_text(user_id, text, log_event=False)
     
     # If no sensitive information found, return original text
     settings = get_user_settings(user_id)
@@ -443,7 +452,7 @@ def get_detection_events(user_id: Optional[int] = None, limit: int = 50, include
                         "action": event.action,
                         "severity": event.severity,
                         "file_names": event.file_names,
-                        "detected_patterns": event.detected_patterns if isinstance(event.detected_patterns, dict) else {}
+                        "detected_patterns": event.get_detected_patterns()
                     }
                     
                     # Add username for admin view if requested

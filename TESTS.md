@@ -23,48 +23,54 @@ The tests are intentionally concentrated on logic that has historically produced
 
 ## Where The Tests Are
 
-All automated tests live under [`tests/`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests).
+All automated tests live under [`tests/`](tests).
 
 Current layout:
 
-- [`tests/conftest.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/conftest.py)
+- [`tests/conftest.py`](tests/conftest.py)
   Shared test fixtures and lightweight stubs for modules that may not be installed in the local test environment.
 
-- [`tests/test_auth_and_session.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_auth_and_session.py)
+- [`tests/test_auth_and_session.py`](tests/test_auth_and_session.py)
   Auth rules, self-registration policy, and session expiration behavior.
 
-- [`tests/test_utils_access_and_messages.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_utils_access_and_messages.py)
+- [`tests/test_utils_access_and_messages.py`](tests/test_utils_access_and_messages.py)
   Conversation ownership checks, deletion permissions, and message/title persistence.
 
-- [`tests/test_privacy_scanner.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_privacy_scanner.py)
+- [`tests/test_privacy_scanner.py`](tests/test_privacy_scanner.py)
   Privacy scanner anonymization behavior.
 
-- [`tests/test_detection_helpers.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_detection_helpers.py)
+- [`tests/test_detection_helpers.py`](tests/test_detection_helpers.py)
   Detection-event retrieval, filtering, formatting, and counts.
 
-- [`tests/test_ai_providers.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_ai_providers.py)
+- [`tests/test_ai_providers.py`](tests/test_ai_providers.py)
   AI provider helper logic, including scan-bypass behavior and override isolation.
 
-- [`tests/test_pdf_export.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_pdf_export.py)
+- [`tests/test_pdf_export.py`](tests/test_pdf_export.py)
   PDF export escaping and access control.
 
-- [`tests/test_migration_add_dlp_columns.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_migration_add_dlp_columns.py)
+- [`tests/test_migration_add_dlp_columns.py`](tests/test_migration_add_dlp_columns.py)
   DLP migration commit behavior.
 
-- [`tests/test_migration_add_local_llm_columns.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_migration_add_local_llm_columns.py)
+- [`tests/test_migration_add_local_llm_columns.py`](tests/test_migration_add_local_llm_columns.py)
   Local-LLM migration commit behavior.
 
-- [`tests/test_page_logic_chat.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_page_logic_chat.py)
+- [`tests/test_page_logic_chat.py`](tests/test_page_logic_chat.py)
   Extracted chat helper logic.
 
-- [`tests/test_page_logic_history_analytics.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_page_logic_history_analytics.py)
+- [`tests/test_page_logic_history_analytics.py`](tests/test_page_logic_history_analytics.py)
   Extracted history and analytics helper logic.
 
-- [`tests/test_page_logic_settings_models.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_page_logic_settings_models.py)
+- [`tests/test_page_logic_settings_models.py`](tests/test_page_logic_settings_models.py)
   Extracted settings and model-manager helper logic.
 
-- [`tests/test_page_logic_admin.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/tests/test_page_logic_admin.py)
+- [`tests/test_page_logic_admin.py`](tests/test_page_logic_admin.py)
   Extracted admin helper logic.
+
+- [`tests/test_bug_regressions.py`](tests/test_bug_regressions.py)
+  Regression tests for audited logic bugs: DLP-blocked uploads leaving no partial rows,
+  single detection-event logging on anonymization, strict-mode pattern thresholds,
+  chronological message ordering, zero-valued local model settings, text extraction for
+  PDF/DOCX/XLSX/PPTX uploads, and the signed Azure AD OAuth state.
 
 ## How The Tests Work
 
@@ -75,7 +81,7 @@ Design choices:
 - It uses an isolated SQLite test database for database-backed logic.
 - It avoids requiring a full Streamlit app run.
 - It stubs selected external packages in `conftest.py` so the tests can run in lightweight environments.
-- It favors pure helper testing where possible, especially for logic extracted from page modules into [`page_logic.py`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/page_logic.py).
+- It favors pure helper testing where possible, especially for logic extracted from page modules into [`page_logic.py`](page_logic.py).
 
 This means:
 
@@ -136,7 +142,7 @@ Without these tests, many of the earlier bugs fixed in this repository could qui
 Example:
 
 ```text
-36 passed in 1.96s
+53 passed in 1.16s
 ```
 
 This means the currently covered logic still behaves as expected.
@@ -184,7 +190,7 @@ Run the suite:
 - after changing auth, privacy scanning, DB access, or migrations
 - in CI on every push and pull request
 
-The repository already includes a GitHub Actions workflow at [`.github/workflows/tests.yml`](/C:/Users/mbelsis/Documents/GitHub/PrivacyChatBox/.github/workflows/tests.yml) that runs the same command automatically.
+The repository already includes a GitHub Actions workflow at [`.github/workflows/tests.yml`](.github/workflows/tests.yml) that runs the same command automatically.
 
 ## Current Scope Gap
 

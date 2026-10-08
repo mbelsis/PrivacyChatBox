@@ -1,6 +1,9 @@
 import os
 import json
 import time
+import hmac
+import hashlib
+from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, Any
 import msal
 import requests
@@ -22,12 +25,56 @@ AZURE_REDIRECT_URI = os.environ.get("AZURE_REDIRECT_URI", "http://localhost:5000
 AUTHORITY = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}"
 ENDPOINT = "https://graph.microsoft.com/v1.0/me"
 
+# How long an OAuth ``state`` value stays valid.
+AUTH_STATE_MAX_AGE_SECONDS = 600
+
+
+def _state_signing_key() -> bytes:
+    """Key used to sign the OAuth ``state`` parameter.
+
+    A dedicated secret can be provided through ``AZURE_STATE_SECRET``; otherwise the
+    client secret (which Azure login requires anyway) is used.
+    """
+    return (os.environ.get("AZURE_STATE_SECRET") or AZURE_CLIENT_SECRET or "").encode("utf-8")
+
+
+def generate_auth_state(now: Optional[float] = None) -> str:
+    """Create a self-validating, HMAC-signed CSRF ``state`` value.
+
+    Streamlit allocates a fresh session (and therefore fresh ``session_state``) when the
+    browser returns from the Microsoft login redirect, so a state stored only in
+    ``session_state`` can never be matched. Signing the state makes it verifiable
+    without server-side storage while still preventing CSRF/login-fixation.
+    """
+    timestamp = str(int(now if now is not None else time.time()))
+    nonce = uuid.uuid4().hex
+    payload = f"{timestamp}.{nonce}"
+    signature = hmac.new(_state_signing_key(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def verify_auth_state(state: Optional[str], now: Optional[float] = None, max_age: int = AUTH_STATE_MAX_AGE_SECONDS) -> bool:
+    """Validate a ``state`` produced by :func:`generate_auth_state`."""
+    if not state:
+        return False
+    parts = state.split(".")
+    if len(parts) != 3:
+        return False
+    timestamp, nonce, signature = parts
+    payload = f"{timestamp}.{nonce}"
+    expected = hmac.new(_state_signing_key(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return False
+    try:
+        issued_at = int(timestamp)
+    except ValueError:
+        return False
+    current = now if now is not None else time.time()
+    return 0 <= current - issued_at <= max_age
+
+
 def init_azure_auth():
     """Initialize the Azure AD authentication"""
-    # Initialize session state
-    if "azure_auth_state" not in st.session_state:
-        st.session_state.azure_auth_state = str(uuid.uuid4())
-    
     if "azure_token_cache" not in st.session_state:
         st.session_state.azure_token_cache = None
 
@@ -45,7 +92,7 @@ def get_auth_url() -> str:
     app = get_msal_app()
     return app.get_authorization_request_url(
         ["User.Read"],
-        state=st.session_state.azure_auth_state,
+        state=generate_auth_state(),
         redirect_uri=AZURE_REDIRECT_URI
     )
 
@@ -60,8 +107,9 @@ def process_auth_code(code: str, state: str) -> bool:
     Returns:
         Boolean indicating success
     """
-    # Verify state to prevent CSRF
-    if state != st.session_state.azure_auth_state:
+    # Verify the signed state to prevent CSRF / login fixation
+    if not verify_auth_state(state):
+        print("Azure AD login rejected: invalid or expired state parameter")
         return False
     
     app = get_msal_app()
@@ -115,9 +163,9 @@ def process_azure_user(token_data: Dict[str, Any]) -> bool:
         return False
     
     # Create or get user in our database
-    create_or_get_azure_user(email, name, user_id)
+    created_user_id, _ = create_or_get_azure_user(email, name, user_id)
     
-    return True
+    return created_user_id > 0
 
 def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tuple[int, str]:
     """
@@ -188,6 +236,15 @@ def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tu
                 st.session_state.user_id = user_id
                 st.session_state.role = user_role
                 st.session_state.azure_user = True
+                st.session_state.must_change_password = False
+                # Mirror the local login flow so session expiry applies to Azure users too.
+                st.session_state.user_info = {
+                    "user_id": user_id,
+                    "username": email,
+                    "role": user_role,
+                    "exp": (datetime.utcnow() + timedelta(days=30)).isoformat(),
+                    "must_change_password": False,
+                }
     
     except Exception as e:
         st.error(f"Error creating or getting Azure user: {e}")

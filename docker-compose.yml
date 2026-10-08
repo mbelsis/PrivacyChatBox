@@ -24,7 +24,7 @@ services:
       # You can add other environment variables here
       # - OPENAI_API_KEY=your_openai_key
       # - ANTHROPIC_API_KEY=your_claude_key
-      # - GEMINI_API_KEY=your_gemini_key
+      # - GOOGLE_API_KEY=your_gemini_key
       # - SERPAPI_KEY=your_serpapi_key
       # - MS_TENANT_ID=your_tenant_id
       # - MS_CLIENT_ID=your_client_id

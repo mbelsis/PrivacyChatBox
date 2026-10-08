@@ -281,21 +281,28 @@ def show_model_download_ui() -> Optional[str]:
         uploaded_file = st.file_uploader("Upload a GGUF model", type=['gguf'])
         
         if uploaded_file is not None:
-            # Save the uploaded file
-            models_dir = ensure_models_directory()
-            safe_name = Path(uploaded_file.name).name
-            if not safe_name.lower().endswith(".gguf"):
-                st.error("Only .gguf model files are supported.")
-                return selected_model_path
-            model_path = os.path.join(models_dir, safe_name)
-            
-            with open(model_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            
-            st.success(f"Model uploaded successfully to {model_path}")
-            
-            # Force refresh of the page
-            st.rerun()
+            # ``st.file_uploader`` keeps the file across reruns, so remember which upload
+            # was already written; otherwise the save + rerun below loops forever.
+            upload_token = f"{getattr(uploaded_file, 'file_id', '')}:{uploaded_file.name}:{uploaded_file.size}"
+            if st.session_state.get("last_processed_model_upload") == upload_token:
+                st.info(f"'{Path(uploaded_file.name).name}' has been saved. Clear the uploader to upload another model.")
+            else:
+                # Save the uploaded file
+                models_dir = ensure_models_directory()
+                safe_name = Path(uploaded_file.name).name
+                if not safe_name.lower().endswith(".gguf"):
+                    st.error("Only .gguf model files are supported.")
+                    return selected_model_path
+                model_path = os.path.join(models_dir, safe_name)
+                
+                with open(model_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                st.session_state["last_processed_model_upload"] = upload_token
+                st.success(f"Model uploaded successfully to {model_path}")
+                
+                # Force refresh of the page
+                st.rerun()
     
     with tab2:
         st.subheader("Manage Downloaded Models")

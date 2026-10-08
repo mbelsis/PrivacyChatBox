@@ -40,7 +40,7 @@ DEFAULT_PATTERNS = [
 ]
 ```
 
-The scan_text function now accepts a `minimum_confidence` parameter (default: 0.7) that filters out patterns with low confidence scores, reducing false positives while maintaining detection accuracy.
+The scan_text function now accepts a `minimum_confidence` parameter (default: 0.6, exposed as `DEFAULT_MINIMUM_CONFIDENCE`) that filters out patterns with low confidence scores. The default is set to the lowest confidence used by a built-in pattern so that every advertised pattern can actually match; callers that want fewer false positives can pass a higher threshold.
 
 ## 2. File Processing Optimization
 

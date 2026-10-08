@@ -30,6 +30,10 @@ SENSITIVITY_LEVELS = {
     "top_secret": 5   # Top Secret
 }
 
+# Network timeout (connect, read) for calls to Microsoft APIs. Without it a stalled
+# connection would block the Streamlit script indefinitely.
+HTTP_TIMEOUT = (10, 60)
+
 # Cache for MS Graph authentication tokens
 TOKEN_CACHE = {}
 TOKEN_CACHE_LOCK = Lock()
@@ -153,7 +157,8 @@ def check_sensitivity_label(file_path: str, file_mime: str) -> Tuple[bool, Optio
         response = requests.post(
             endpoint,
             headers=headers,
-            data=file_content
+            data=file_content,
+            timeout=HTTP_TIMEOUT
         )
         
         # Throw an error if response is not successful
@@ -249,7 +254,8 @@ def report_dlp_violation(
         response = requests.post(
             endpoint,
             headers=headers,
-            json=payload
+            json=payload,
+            timeout=HTTP_TIMEOUT
         )
         
         # Check response

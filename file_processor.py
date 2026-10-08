@@ -1,7 +1,11 @@
 import os
 import io
 import csv
+import re
+import sys
 import time
+import zipfile
+import xml.etree.ElementTree as ET
 from typing import Generator, Dict, Any, Optional, List, Tuple, BinaryIO
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
@@ -73,16 +77,20 @@ def extract_text_from_docx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_S
     Yields:
         Text chunks from the DOCX
     """
-    if not DOCX_AVAILABLE:
-        yield "DOCX extraction requires python-docx. Please install it with: pip install python-docx"
-        return
-    
     try:
-        # Load the document
-        doc = docx.Document(file_obj)
-        
-        # Extract text
-        full_text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        if DOCX_AVAILABLE:
+            # Load the document
+            doc = docx.Document(file_obj)
+            
+            # Extract text
+            full_text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        else:
+            # Fallback: a DOCX is a zip archive; pull the text runs straight from the XML.
+            full_text = _extract_text_from_office_xml(
+                file_obj,
+                member_pattern=r"^word/document\.xml$",
+                text_tag="{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t",
+            )
         
         # Yield chunks of text
         step = max(1, chunk_size - overlap)
@@ -90,6 +98,50 @@ def extract_text_from_docx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_S
             yield full_text[i:i + chunk_size]
     except Exception as e:
         yield f"Error extracting text from DOCX: {str(e)}"
+
+def _extract_text_from_office_xml(file_obj: BinaryIO, member_pattern: str, text_tag: str) -> str:
+    """Extract text nodes from the XML parts of an Office Open XML (zip) container."""
+    member_regex = re.compile(member_pattern)
+    texts: List[str] = []
+
+    def _member_sort_key(name: str):
+        numbers = re.findall(r"\d+", name)
+        return (int(numbers[-1]) if numbers else 0, name)
+
+    with zipfile.ZipFile(file_obj) as archive:
+        members = sorted((n for n in archive.namelist() if member_regex.match(n)), key=_member_sort_key)
+        for member in members:
+            try:
+                root = ET.fromstring(archive.read(member))
+            except ET.ParseError:
+                continue
+            part_text = [node.text for node in root.iter(text_tag) if node.text]
+            if part_text:
+                texts.append(" ".join(part_text))
+    return "\n".join(texts)
+
+def extract_text_from_pptx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> Generator[str, None, None]:
+    """
+    Extract text from a PPTX file in chunks (slides in order).
+    
+    Args:
+        file_obj: File-like object containing PPTX data
+        chunk_size: Size of chunks to yield
+        
+    Yields:
+        Text chunks from the presentation
+    """
+    try:
+        full_text = _extract_text_from_office_xml(
+            file_obj,
+            member_pattern=r"^ppt/slides/slide\d+\.xml$",
+            text_tag="{http://schemas.openxmlformats.org/drawingml/2006/main}t",
+        )
+        step = max(1, chunk_size - overlap)
+        for i in range(0, len(full_text), step):
+            yield full_text[i:i + chunk_size]
+    except Exception as e:
+        yield f"Error extracting text from PPTX: {str(e)}"
 
 def extract_text_from_xlsx(file_obj: BinaryIO, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> Generator[str, None, None]:
     """
@@ -194,14 +246,7 @@ def extract_text_from_plaintext(file_obj: BinaryIO, chunk_size: int = DEFAULT_CH
                 
             # Decode bytes to string if needed
             if isinstance(chunk, bytes):
-                try:
-                    chunk = chunk.decode('utf-8')
-                except UnicodeDecodeError:
-                    try:
-                        # Try alternate encoding if UTF-8 fails
-                        chunk = chunk.decode('latin-1')
-                    except Exception:
-                        chunk = f"Error decoding file content"
+                chunk = decode_text_bytes(chunk)
             
             combined_chunk = carryover + chunk
             yield combined_chunk
@@ -239,9 +284,59 @@ def get_file_extractor(file_type: str):
     # CSV files
     if file_type in ['text/csv', '.csv', 'csv']:
         return extract_text_from_csv
+
+    # PowerPoint presentations
+    if file_type in ['application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                     'application/vnd.ms-powerpoint', '.pptx', '.ppt', 'pptx', 'ppt']:
+        return extract_text_from_pptx
     
     # Default to plaintext for all other types
     return extract_text_from_plaintext
+
+# Extractors that operate on text rather than on a binary container format.
+TEXT_EXTRACTORS = (extract_text_from_plaintext, extract_text_from_csv)
+
+def resolve_file_extractor(file_name: Optional[str], file_type: Optional[str]):
+    """
+    Pick an extractor from the MIME type first and the file extension second.
+
+    Browsers frequently report ``application/octet-stream`` for Office files, so the
+    extension is a necessary fallback.
+    """
+    extractor = get_file_extractor(file_type or "")
+    if extractor is extract_text_from_plaintext and file_name:
+        extension = os.path.splitext(file_name)[1].lower()
+        if extension:
+            extractor = get_file_extractor(extension)
+    return extractor
+
+def decode_text_bytes(data: bytes) -> str:
+    """Decode raw bytes as UTF-8, falling back to Latin-1 (which never fails)."""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1", errors="replace")
+
+def extract_text_from_bytes(file_name: Optional[str], file_type: Optional[str], data: bytes) -> str:
+    """
+    Extract the complete text of an in-memory file.
+
+    Args:
+        file_name: Original file name (used for extension-based detection)
+        file_type: MIME type reported by the uploader
+        data: Raw file bytes
+
+    Returns:
+        Extracted text. Plain-text inputs are decoded; binary document formats are
+        converted with the matching extractor.
+    """
+    extractor = resolve_file_extractor(file_name, file_type)
+    if extractor is extract_text_from_plaintext:
+        return decode_text_bytes(data)
+
+    # Request a single chunk with no overlap so the chunks can be joined losslessly.
+    chunks = list(extractor(io.BytesIO(data), chunk_size=sys.maxsize, overlap=0))
+    return "".join(chunks)
 
 def scan_file_chunks(file_path: str, file_type: str, scanner_func, chunk_size: int = DEFAULT_CHUNK_SIZE, 
                      max_workers: int = 4) -> Tuple[bool, Dict[str, List[str]], float]:
@@ -267,21 +362,21 @@ def scan_file_chunks(file_path: str, file_type: str, scanner_func, chunk_size: i
     file_size_bytes = os.path.getsize(file_path)
     file_size_kb = file_size_bytes / 1024
     
-    # For small files, we can just read the entire content and use regular scan_text
-    # This avoids the overhead of chunking and parallelization for small files
-    if file_size_kb < 500:  # 500KB threshold
-        try:
-            with open(file_path, 'r', errors='ignore') as f:
-                content = f.read()
-                sensitive_found, detected = scanner_func(content)
-                processing_time = time.time() - start_time
-                return sensitive_found, detected, processing_time
-        except UnicodeDecodeError:
-            # If we have trouble reading as text, fall back to binary chunked processing
-            pass
-    
     # Get the appropriate extractor for this file type
-    extractor = get_file_extractor(file_type)
+    extractor = resolve_file_extractor(file_path, file_type)
+
+    # For small *text* files, read the entire content and scan it in one pass.
+    # Binary document formats (PDF, DOCX, XLSX, PPTX) must always go through their
+    # extractor; reading them as text yields unscannable garbage.
+    if extractor in TEXT_EXTRACTORS and file_size_kb < 500:  # 500KB threshold
+        try:
+            with open(file_path, 'rb') as f:
+                content = decode_text_bytes(f.read())
+            sensitive_found, detected = scanner_func(content)
+            processing_time = time.time() - start_time
+            return sensitive_found, detected, processing_time
+        except OSError as e:
+            print(f"Error reading file: {str(e)}")
     
     # Dictionary to store all detected patterns
     all_detected = {}

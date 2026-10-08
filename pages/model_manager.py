@@ -49,6 +49,13 @@ def show():
         except Exception as e:
             st.error(f"Error retrieving user settings: {str(e)}")
     
+    def clamp(value, minimum, maximum, cast=int):
+        try:
+            value = cast(value)
+        except (TypeError, ValueError):
+            value = minimum
+        return max(minimum, min(maximum, value))
+
     # Main content
     st.title("Model Manager")
     
@@ -61,18 +68,24 @@ def show():
         
         # If a model was selected, update settings
         if selected_model:
-            with database.session_scope() as session:
-                try:
+            updated = False
+            try:
+                with database.session_scope() as session:
                     user = session.query(User).filter(User.id == user_id).first()
                     if user and user.settings:
                         user.settings.local_model_path = selected_model
                         user_settings = merge_selected_model_snapshot(user_settings, selected_model, user.settings)
-                        st.success(f"Local model path updated to: {selected_model}")
-                        st.rerun()
-                    else:
-                        st.error("Could not update settings. Please try again.")
-                except Exception as e:
-                    st.error(f"Error updating model path: {str(e)}")
+                        updated = True
+            except Exception as e:
+                st.error(f"Error updating model path: {str(e)}")
+
+            if updated:
+                # ``st.rerun()`` raises to restart the script. Calling it inside
+                # ``session_scope`` made the context manager roll back the update.
+                st.success(f"Local model path updated to: {selected_model}")
+                st.rerun()
+            else:
+                st.error("Could not update settings. Please try again.")
     
     # Tab 2: Model testing
     with tab2:
@@ -98,14 +111,14 @@ def show():
                         context_size = st.number_input("Context size", 
                                                       min_value=512, 
                                                       max_value=16384,
-                                                      value=user_settings["local_model_context_size"],
+                                                      value=clamp(user_settings["local_model_context_size"], 512, 16384),
                                                       step=512)
                     
                     with col2:
                         gpu_layers = st.number_input("GPU layers (-1 for all)", 
                                                    min_value=-1, 
                                                    max_value=100,
-                                                   value=user_settings["local_model_gpu_layers"],
+                                                   value=clamp(user_settings["local_model_gpu_layers"], -1, 100),
                                                    step=1)
                     
                     submit = st.form_submit_button("Test Model")
@@ -140,21 +153,21 @@ def show():
                 context_size = st.number_input("Default context window size", 
                                              min_value=512, 
                                              max_value=16384,
-                                             value=user_settings["local_model_context_size"],
+                                             value=clamp(user_settings["local_model_context_size"], 512, 16384),
                                              step=512,
                                              help="Larger values allow processing more text but use more memory")
                 
                 gpu_layers = st.number_input("GPU layers to offload", 
                                           min_value=-1, 
                                           max_value=100,
-                                          value=user_settings["local_model_gpu_layers"],
+                                          value=clamp(user_settings["local_model_gpu_layers"], -1, 100),
                                           step=1,
                                           help="-1 means use all available GPU layers")
                 
                 temperature = st.slider("Temperature", 
                                       min_value=0.0, 
                                       max_value=2.0,
-                                      value=user_settings["local_model_temperature"],
+                                      value=clamp(user_settings["local_model_temperature"], 0.0, 2.0, cast=float),
                                       step=0.05,
                                       help="Higher values make output more random, lower values more deterministic")
                 

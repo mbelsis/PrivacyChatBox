@@ -6,7 +6,6 @@ This script allows testing the local LLM integration without running the full ap
 import os
 import sys
 import argparse
-from llama_cpp import Llama
 from typing import Optional
 
 def test_local_model(model_path: str, prompt: str, n_ctx: int = 2048, n_gpu_layers: int = -1) -> Optional[str]:
@@ -31,6 +30,10 @@ def test_local_model(model_path: str, prompt: str, n_ctx: int = 2048, n_gpu_laye
     print(f"Context size: {n_ctx}, GPU layers: {n_gpu_layers}")
     
     try:
+        # Import lazily so modules that import this file (e.g. the Model Manager page)
+        # still load when llama-cpp-python is not installed.
+        from llama_cpp import Llama
+
         # Initialize model
         model = Llama(
             model_path=model_path,

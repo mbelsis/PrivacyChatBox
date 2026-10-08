@@ -146,16 +146,18 @@ def show():
                 messages_by_date = {}
                 detections_by_date = {}
                 
-                # Time grouping
-                time_group = func.date(Conversation.created_at)
-                
-                # Determine date buckets based on time period
-                if days == 0:  # All time
-                    # Group by month if all time
-                    time_group = func.date_trunc('month', Conversation.created_at)
-                elif days > 30:  # Last 90 days
-                    # Group by week if more than 30 days
-                    time_group = func.date_trunc('week', Conversation.created_at)
+                # Time grouping: every series must use the same bucket size, otherwise
+                # monthly conversation counts get plotted against daily message counts.
+                def time_bucket(column):
+                    if days == 0:  # All time -> month
+                        return func.date_trunc('month', column)
+                    if days > 30:  # Last 90 days -> week
+                        return func.date_trunc('week', column)
+                    return func.date(column)
+
+                time_group = time_bucket(Conversation.created_at)
+                message_time_group = time_bucket(Message.timestamp)
+                detection_time_group = time_bucket(DetectionEvent.timestamp)
                 
                 # Get conversations by date
                 conversations_by_date_query = session.query(
@@ -175,7 +177,7 @@ def show():
                 
                 # Get messages by date
                 messages_by_date_query = session.query(
-                    func.date(Message.timestamp),
+                    message_time_group,
                     func.count(Message.id)
                 ).join(
                     Conversation, Message.conversation_id == Conversation.id
@@ -191,11 +193,11 @@ def show():
                 if cutoff_date:
                     messages_by_date_query = messages_by_date_query.filter(Message.timestamp >= cutoff_date)
                 
-                messages_by_date_query = messages_by_date_query.group_by(func.date(Message.timestamp)).all()
+                messages_by_date_query = messages_by_date_query.group_by(message_time_group).all()
                 
                 # Get detections by date
                 detections_by_date_query = session.query(
-                    func.date(DetectionEvent.timestamp),
+                    detection_time_group,
                     func.count(DetectionEvent.id)
                 )
                 
@@ -209,7 +211,7 @@ def show():
                 if cutoff_date:
                     detections_by_date_query = detections_by_date_query.filter(DetectionEvent.timestamp >= cutoff_date)
                 
-                detections_by_date_query = detections_by_date_query.group_by(func.date(DetectionEvent.timestamp)).all()
+                detections_by_date_query = detections_by_date_query.group_by(detection_time_group).all()
                 
                 time_series_maps = build_time_series_maps({
                     "conversations": conversations_by_date_query,
@@ -334,8 +336,18 @@ def show():
                 if cutoff_date:
                     detection_query = detection_query.filter(DetectionEvent.timestamp >= cutoff_date)
                 
-                # Get all detection events
-                detection_events = detection_query.all()
+                # Copy the fields we need while the session is open. ``session_scope``
+                # expires every instance on commit, so touching ORM attributes after the
+                # ``with`` block raises DetachedInstanceError.
+                detection_events = [
+                    {
+                        "timestamp": event.timestamp,
+                        "action": event.action,
+                        "severity": event.severity,
+                        "detected_patterns": event.get_detected_patterns(),
+                    }
+                    for event in detection_query.all()
+                ]
                 
                 # Prepare data for analytics
                 severity_counts = {"low": 0, "medium": 0, "high": 0}
@@ -345,22 +357,18 @@ def show():
                 pattern_counts = {}
                 for event in detection_events:
                     # Count by severity
-                    if event.severity in severity_counts:
-                        severity_counts[event.severity] += 1
+                    if event["severity"] in severity_counts:
+                        severity_counts[event["severity"]] += 1
                     
                     # Count by action
-                    if event.action in action_counts:
-                        action_counts[event.action] += 1
+                    if event["action"] in action_counts:
+                        action_counts[event["action"]] += 1
                     
                     # Count by pattern type
-                    try:
-                        patterns = event.get_detected_patterns()
-                        for pattern_type, matches in patterns.items():
-                            if pattern_type not in pattern_counts:
-                                pattern_counts[pattern_type] = 0
-                            pattern_counts[pattern_type] += len(matches)
-                    except Exception:
-                        pass
+                    for pattern_type, matches in event["detected_patterns"].items():
+                        if pattern_type not in pattern_counts:
+                            pattern_counts[pattern_type] = 0
+                        pattern_counts[pattern_type] += len(matches) if isinstance(matches, list) else 1
                 
                 # Format action names for display
                 action_display = {
@@ -462,10 +470,13 @@ def show():
             # Group events by day
             event_dates = {}
             for event in detection_events:
-                date_str = event.timestamp.strftime('%Y-%m-%d')
+                if not event["timestamp"]:
+                    continue
+                date_str = event["timestamp"].strftime('%Y-%m-%d')
                 if date_str not in event_dates:
                     event_dates[date_str] = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0}
-                event_dates[date_str][event.action] += 1
+                if event["action"] in event_dates[date_str]:
+                    event_dates[date_str][event["action"]] += 1
             
             # Create dataframe for time series
             event_time_data = []
@@ -810,9 +821,12 @@ def show():
         
         if not hourly_df.empty and hourly_df["Messages"].sum() > 0:
             # Format hours for display (12-hour format with AM/PM)
-            hourly_df["Hour Display"] = hourly_df["Hour"].apply(
-                lambda x: f"{x if x < 12 else x-12 if x > 12 else 12}{' AM' if x < 12 else ' PM'}"
-            )
+            def format_hour(hour: int) -> str:
+                suffix = "AM" if hour < 12 else "PM"
+                twelve_hour = hour % 12 or 12
+                return f"{twelve_hour} {suffix}"
+
+            hourly_df["Hour Display"] = hourly_df["Hour"].apply(format_hour)
             
             fig = px.bar(
                 hourly_df,
@@ -828,7 +842,7 @@ def show():
                 xaxis=dict(
                     tickmode='array',
                     tickvals=list(range(24)),
-                    ticktext=[f"{h if h < 12 else h-12 if h > 12 else 12}{' AM' if h < 12 else ' PM'}" for h in range(24)]
+                    ticktext=[format_hour(h) for h in range(24)]
                 ),
                 xaxis_title="Hour of Day",
                 yaxis_title="Number of Messages"

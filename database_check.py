@@ -45,6 +45,8 @@ def check_columns_exist(table_name, column_list):
         Tuple of (all_exist, missing_columns)
     """
     session = get_session()
+    if session is None:
+        raise RuntimeError("Unable to create a database session; is DATABASE_URL configured?")
     inspector = inspect(session.bind)
     
     try:

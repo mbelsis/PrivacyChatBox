@@ -124,7 +124,12 @@ class Conversation(Base):
     
     # Relationships
     user = relationship("User", back_populates="conversations")
-    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+    messages = relationship(
+        "Message",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="[Message.timestamp, Message.id]",
+    )
     
     def to_dict(self):
         """Convert conversation to dictionary"""

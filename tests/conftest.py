@@ -61,6 +61,22 @@ if "google.generativeai" not in sys.modules:
     google_genai_stub.configure = _noop
     sys.modules["google.generativeai"] = google_genai_stub
 
+if "msal" not in sys.modules:
+    try:
+        import msal  # noqa: F401
+    except ImportError:
+        msal_stub = types.ModuleType("msal")
+        msal_stub.ConfidentialClientApplication = object
+        sys.modules["msal"] = msal_stub
+
+if "jose" not in sys.modules:
+    try:
+        import jose  # noqa: F401
+    except ImportError:
+        jose_stub = types.ModuleType("jose")
+        jose_stub.jwt = types.SimpleNamespace()
+        sys.modules["jose"] = jose_stub
+
 if "reportlab" not in sys.modules:
     reportlab = types.ModuleType("reportlab")
     reportlab_lib = types.ModuleType("reportlab.lib")

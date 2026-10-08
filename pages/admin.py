@@ -86,13 +86,8 @@ AZURE_CLIENT_SECRET: ********
             if not session:
                 st.error("Unable to connect to database. Please try again later.")
                 return
-            azure_users_count = 0
-            all_users = session.query(User).all()
+            azure_users_count = session.query(User).filter(User.azure_id.isnot(None)).count()
             session.close()
-            
-            for user in all_users:
-                if hasattr(user, 'azure_id') and user.azure_id is not None:
-                    azure_users_count += 1
             
             st.info(f"There are {azure_users_count} users connected via Azure AD")
         else:
@@ -382,14 +377,13 @@ MS_CLIENT_SECRET: ********
             elif validate_password_strength(new_password):
                 st.error(validate_password_strength(new_password))
             else:
-                success = create_user(new_username, new_password, role=new_role)
-                if not success and new_role == "user":
-                    success = create_user(
-                        new_username,
-                        new_password,
-                        role=new_role,
-                        allow_when_registration_disabled=True
-                    )
+                # Accounts created by an administrator are not self-registrations.
+                success = create_user(
+                    new_username,
+                    new_password,
+                    role=new_role,
+                    allow_when_registration_disabled=True
+                )
                 if success:
                     st.success(f"User '{new_username}' created successfully")
                     st.rerun()
@@ -500,23 +494,29 @@ MS_CLIENT_SECRET: ********
             if not allowed:
                 st.error(error_message)
             else:
-                # Confirm deletion
-                st.warning(f"Are you sure you want to delete user '{delete_user_display.split(' (ID:')[0]}'? This action cannot be undone.")
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if st.button("Yes, delete user", key="confirm_delete"):
-                        success = delete_user(delete_user_id)
-                        if success:
-                            st.success("User deleted successfully")
-                            st.rerun()
-                        else:
-                            st.error("Failed to delete user")
-                
-                with col2:
-                    if st.button("Cancel", key="cancel_delete"):
+                st.session_state["pending_delete_user_id"] = delete_user_id
+
+        # The confirmation must be driven by session_state: a button nested inside another
+        # button's ``if`` block is never evaluated on the rerun its click triggers.
+        if st.session_state.get("pending_delete_user_id") == delete_user_id:
+            st.warning(f"Are you sure you want to delete user '{delete_user_display.split(' (ID:')[0]}'? This action cannot be undone.")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Yes, delete user", key="confirm_delete"):
+                    st.session_state.pop("pending_delete_user_id", None)
+                    success = delete_user(delete_user_id)
+                    if success:
+                        st.success("User deleted successfully")
                         st.rerun()
+                    else:
+                        st.error("Failed to delete user")
+            
+            with col2:
+                if st.button("Cancel", key="cancel_delete"):
+                    st.session_state.pop("pending_delete_user_id", None)
+                    st.rerun()
     
     # System Statistics tab
     with stats_tab:
@@ -530,6 +530,7 @@ MS_CLIENT_SECRET: ********
         total_detection_events = 0
         most_conversations_query = None
         latest_event = None
+        latest_event_data = None
         
         try:
             with session_scope() as session:
@@ -550,7 +551,6 @@ MS_CLIENT_SECRET: ********
                      .first()
                     
                     # Get latest detection event
-                    latest_event_data = None
                     latest_event_query = session.query(
                         DetectionEvent.timestamp,
                         DetectionEvent.action,
@@ -573,7 +573,7 @@ MS_CLIENT_SECRET: ********
             total_conversations=total_conversations,
             total_detection_events=total_detection_events,
             most_conversations_row=most_conversations_query,
-            latest_event_data=latest_event_data if 'latest_event_data' in locals() else None,
+            latest_event_data=latest_event_data,
         )
 
         # Display statistics in columns
@@ -649,7 +649,7 @@ MS_CLIENT_SECRET: ********
         with col2:
             action_filter = st.selectbox(
                 "Action Type",
-                ["All", "scan", "anonymize"],
+                ["All", "scan", "anonymize", "block_sensitive_file"],
                 key="log_action_filter"
             )
         
@@ -708,10 +708,14 @@ MS_CLIENT_SECRET: ********
             st.markdown("---")
             st.subheader("View Event Details")
             
-            # Create a dropdown with event timestamps
-            event_options = {event["timestamp"]: i for i, event in enumerate(formatted_events)}
-            selected_event_time = st.selectbox("Select event timestamp", list(event_options.keys()))
-            selected_event_index = event_options[selected_event_time]
+            # Create a dropdown with event timestamps. Several events can share a
+            # timestamp, so the label carries the row number to keep options unique.
+            event_options = {
+                f"#{i + 1} · {event['timestamp']} · {event['action']}": i
+                for i, event in enumerate(formatted_events)
+            }
+            selected_event_label = st.selectbox("Select event", list(event_options.keys()))
+            selected_event_index = event_options[selected_event_label]
             selected_event = formatted_events[selected_event_index]
             
             # Display event details
