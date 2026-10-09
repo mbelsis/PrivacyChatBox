@@ -93,7 +93,6 @@ This document provides solutions for common issues encountered when running Priv
    - `MS_CLIENT_ID`
    - `MS_CLIENT_SECRET`
    - `MS_TENANT_ID`
-   - `MS_DLP_ENDPOINT_ID`
 
 2. Run the DLP migration script:
    ```bash

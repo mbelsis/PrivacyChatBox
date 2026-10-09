@@ -44,7 +44,6 @@ AZURE_REDIRECT_URI=your_redirect_uri
 MS_TENANT_ID=your_tenant_id
 MS_CLIENT_ID=your_client_id
 MS_CLIENT_SECRET=your_client_secret
-MS_DLP_ENDPOINT_ID=your_endpoint_id
 ```
 
 2. Or, edit the `docker-compose.yml` file directly to add your environment variables.

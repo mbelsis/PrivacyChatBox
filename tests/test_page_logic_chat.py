@@ -60,9 +60,15 @@ def test_build_file_payloads_and_uploaded_records_preserve_bytes_and_metadata():
     assert payloads[1]["mime_type"] == "application/octet-stream"
     assert payloads[1]["content_bytes"] == b"\xff\xfe"
     assert records == [
-        {"name": "a.txt", "mime_type": "text/plain", "content_bytes": b"hello"},
-        {"name": "b.bin", "mime_type": "application/octet-stream", "content_bytes": b"\xff\xfe"},
+        {"name": "a.txt", "mime_type": "text/plain", "content_bytes": b"hello",
+         "original_bytes": b"hello", "text": "hello"},
+        {"name": "b.bin", "mime_type": "application/octet-stream", "content_bytes": b"\xff\xfe",
+         "original_bytes": b"\xff\xfe", "text": payloads[1]["content"]},
     ]
+
+    # Anonymizing the payload must not touch the bytes used for DLP label checks.
+    payloads[0]["content_bytes"] = b"[REDACTED]"
+    assert build_uploaded_file_records(payloads)[0]["original_bytes"] == b"hello"
 
 
 def test_build_current_user_content_appends_search_and_file_context():

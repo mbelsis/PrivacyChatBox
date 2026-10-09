@@ -15,6 +15,7 @@ python database_check.py
 python migration_add_dlp_columns.py
 python migration_add_local_llm_columns.py
 python migration_pattern_levels.py
+python migration_secure_existing_data.py
 
 # Start Streamlit
 echo "Starting Streamlit application..."

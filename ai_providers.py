@@ -13,8 +13,19 @@ from models import Settings
 # Import API clients
 import openai
 from anthropic import Anthropic
-from google.generativeai import GenerativeModel
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
+
+from model_catalog import get_hosted_models, resolve_model
+
+# Upper bound on generated tokens. Reasoning models (GPT-5+/6) spend part of this
+# budget on hidden reasoning, so it must be generous enough to leave room for output.
+MAX_OUTPUT_TOKENS = 4096
+
+
+def get_gemini_api_key() -> str:
+    """Gemini key: GOOGLE_API_KEY (documented) or GEMINI_API_KEY (google-genai default)."""
+    return os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY") or ""
 
 def get_user_settings(user_id: int) -> Optional[SimpleNamespace]:
     """Get user settings from the database"""
@@ -30,11 +41,12 @@ def get_user_settings(user_id: int) -> Optional[SimpleNamespace]:
                     llm_provider=settings.llm_provider,
                     ai_character=settings.ai_character,
                     openai_api_key=settings.openai_api_key,
-                    openai_model=settings.openai_model,
+                    # Retired model IDs saved by older versions resolve to a supported one.
+                    openai_model=resolve_model("openai", settings.openai_model),
                     claude_api_key=settings.claude_api_key,
-                    claude_model=settings.claude_model,
+                    claude_model=resolve_model("claude", settings.claude_model),
                     gemini_api_key=settings.gemini_api_key,
-                    gemini_model=settings.gemini_model,
+                    gemini_model=resolve_model("gemini", settings.gemini_model),
                     serpapi_key=settings.serpapi_key,
                     local_model_path=settings.local_model_path,
                     local_model_context_size=settings.local_model_context_size,
@@ -58,7 +70,6 @@ def get_available_models() -> Dict[str, List[str]]:
     # Get available local models
     local_models = []
     try:
-        import os
         models_dir = os.path.join(os.getcwd(), "models")
         if os.path.exists(models_dir):
             for filename in os.listdir(models_dir):
@@ -71,25 +82,9 @@ def get_available_models() -> Dict[str, List[str]]:
     if not local_models:
         local_models = ["Please download a model first"]
     
-    return {
-        "openai": [
-            "gpt-4o", 
-            "gpt-4-turbo", 
-            "gpt-4", 
-            "gpt-3.5-turbo"
-        ],
-        "claude": [
-            "claude-3-5-sonnet-20241022",
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229", 
-            "claude-3-haiku-20240307"
-        ],
-        "gemini": [
-            "gemini-1.5-pro",
-            "gemini-1.5-flash"
-        ],
-        "local": local_models
-    }
+    models = get_hosted_models()
+    models["local"] = local_models
+    return models
 
 def create_system_prompt(ai_character: str) -> str:
     """Create a system prompt based on the AI character setting"""
@@ -225,11 +220,11 @@ def get_ai_response(
     if override_model and override_model.strip():
         # Check which provider we're using and update the appropriate model
         if settings_copy.llm_provider == "openai":
-            settings_copy.openai_model = override_model
+            settings_copy.openai_model = resolve_model("openai", override_model)
         elif settings_copy.llm_provider == "claude":
-            settings_copy.claude_model = override_model
+            settings_copy.claude_model = resolve_model("claude", override_model)
         elif settings_copy.llm_provider == "gemini":
-            settings_copy.gemini_model = override_model
+            settings_copy.gemini_model = resolve_model("gemini", override_model)
     
     # Automatically bypass privacy scanning for local models if configured
     provider = settings_copy.llm_provider
@@ -281,13 +276,14 @@ def get_openai_response(
     client = openai.OpenAI(api_key=api_key)
     
     try:
-        # Simplify: Use the messages as provided without modifying them
+        # GPT-5 and later are reasoning models: they reject ``max_tokens`` (replaced by
+        # ``max_completion_tokens``) and any non-default ``temperature``. Both settings
+        # below are accepted by every current chat-completions model.
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             stream=stream,
-            temperature=0.7,
-            max_tokens=1500
+            max_completion_tokens=MAX_OUTPUT_TOKENS
         )
         
         if stream:
@@ -340,7 +336,7 @@ def get_claude_response(
         request_kwargs = {
             "model": model,
             "messages": claude_messages,
-            "max_tokens": 1500,
+            "max_tokens": MAX_OUTPUT_TOKENS,
             "stream": stream,
         }
         if system_content:
@@ -371,88 +367,58 @@ def get_gemini_response(
     messages: List[Dict[str, str]], 
     stream: bool = True
 ) -> Union[str, Generator[str, None, None]]:
-    """Get response from Google Gemini API"""
-    # Get API key from environment variable first, then fallback to settings
-    api_key = os.environ.get("GOOGLE_API_KEY", "")
-    model = settings.gemini_model
+    """Get response from Google Gemini via the ``google-genai`` SDK.
+
+    The previous ``google-generativeai`` package is end-of-life. With ``google-genai``
+    the system prompt is passed as a real ``system_instruction`` instead of being
+    injected as a fake first user turn.
+    """
+    api_key = get_gemini_api_key()
+    model = resolve_model("gemini", settings.gemini_model)
     
     if not api_key:
         return "Error: Gemini API key not found in environment variables. Please add it to your .env file or environment variables with the key GOOGLE_API_KEY."
-    
-    # Configure API
-    genai.configure(api_key=api_key)
-    
-    # Check and correct model name if needed
-    available_models = get_available_models()["gemini"]
-    if model not in available_models:
-        # Default to first available model if specified model not found
-        model = available_models[0]
-        # Update user's settings in the database
-        try:
-            with session_scope() as session:
-                user_settings = session.query(Settings).filter(Settings.user_id == settings.user_id).first()
-                if user_settings:
-                    user_settings.gemini_model = model
-                    # session_scope handles commit and close
-        except Exception as e:
-            # Continue even if we can't update the settings
-            print(f"Error updating Gemini model settings: {str(e)}")
-            pass
-    
+
+    system_content = None
+    contents = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_content = msg["content"]
+        elif msg["role"] in ("user", "assistant"):
+            contents.append(genai_types.Content(
+                role="user" if msg["role"] == "user" else "model",
+                parts=[genai_types.Part.from_text(text=msg["content"])],
+            ))
+
+    if not contents or contents[-1].role != "user":
+        return "Error: Gemini requests must end with a user message."
+
+    history, last_message = contents[:-1], contents[-1].parts[0].text
+    config = genai_types.GenerateContentConfig(
+        system_instruction=system_content,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+    )
+
     try:
-        # Initialize model
-        gemini_model = GenerativeModel(model)
-        
-        # Convert messages to Gemini format
-        gemini_messages = []
-        system_content = None
-        
-        for msg in messages:
-            if msg["role"] == "system":
-                system_content = msg["content"]
-            elif msg["role"] == "user":
-                gemini_messages.append({"role": "user", "parts": [msg["content"]]})
-            elif msg["role"] == "assistant":
-                gemini_messages.append({"role": "model", "parts": [msg["content"]]})
-        
-        # Add system message at the beginning as a clear instruction from user
-        # This approach makes Gemini treat the system prompt as instructions it should follow
-        if system_content:
-            # Insert at beginning of conversation history as a user instruction
-            gemini_messages.insert(0, {"role": "user", "parts": [system_content]})
-            # Add a confirmation from the model to acknowledge the role
-            gemini_messages.insert(1, {"role": "model", "parts": ["I understand and will follow your instructions."]})
-        
-        # Create chat session with the enhanced history
-        chat = gemini_model.start_chat(history=gemini_messages[:-1] if gemini_messages else [])
-        
-        # Get response
+        client = genai.Client(api_key=api_key)
+        chat = client.chats.create(model=model, config=config, history=history)
+
         if stream:
-            last_message = gemini_messages[-1]["parts"][0] if gemini_messages else "Hello"
-            response = chat.send_message(
-                last_message,
-                stream=True
-            )
-            
-            # Return a generator that yields chunks of the response
+            response = chat.send_message_stream(last_message)
+
             def response_generator():
                 for chunk in response:
-                    yield chunk.text
-            
+                    if chunk.text:
+                        yield chunk.text
+
             return response_generator()
-        else:
-            last_message = gemini_messages[-1]["parts"][0] if gemini_messages else "Hello"
-            response = chat.send_message(
-                last_message,
-                stream=False
-            )
-            return response.text
-    
+
+        return chat.send_message(last_message).text or ""
+
     except Exception as e:
         error_msg = str(e)
-        if "not found" in error_msg and "models/" in error_msg:
-            # If it's a model not found error, provide a more helpful message
-            available_models_str = ", ".join(available_models)
+        if "not found" in error_msg.lower() and "model" in error_msg.lower():
+            available_models_str = ", ".join(get_hosted_models()["gemini"])
             return f"Error: The selected Gemini model '{model}' is not available. Please update your settings to use one of the available models: {available_models_str}"
         return f"Error calling Gemini API: {error_msg}"
 

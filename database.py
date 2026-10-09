@@ -64,8 +64,10 @@ def init_db():
             # We'll import the models here to avoid circular imports
             from models import User, Settings, DetectionEvent, Conversation, Message, File
             
-            # Create any missing tables in the schema.
+            # Create any missing tables in the schema, then add any columns that were
+            # introduced after the tables were first created.
             Base.metadata.create_all(engine)
+            sync_schema(engine)
             
             return True
         except Exception as e:
@@ -79,6 +81,51 @@ def init_db():
                 return False
     
     return False
+
+def _literal_default(column, dialect) -> str:
+    """SQL DEFAULT clause for a column's scalar Python default, or an empty string."""
+    default = column.default
+    if default is None or not getattr(default, "is_scalar", False):
+        return ""
+    literal = sqlalchemy.literal(default.arg, type_=column.type)
+    return " DEFAULT " + str(literal.compile(dialect=dialect, compile_kwargs={"literal_binds": True}))
+
+
+def sync_schema(target_engine) -> list:
+    """
+    Add columns that exist in the ORM models but not in the database.
+
+    ``create_all`` only creates missing tables; upgrading an existing deployment would
+    otherwise fail with "column does not exist" until someone ran a migration script by
+    hand. Changes are strictly additive (nullable columns, scalar defaults). Returns the
+    list of ``table.column`` names that were added.
+    """
+    added = []
+    inspector = sqlalchemy.inspect(target_engine)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            preparer = target_engine.dialect.identifier_preparer
+            column_type = column.type.compile(dialect=target_engine.dialect)
+            ddl = (
+                f"ALTER TABLE {preparer.quote(table.name)} "
+                f"ADD COLUMN {preparer.quote(column.name)} {column_type}"
+                f"{_literal_default(column, target_engine.dialect)}"
+            )
+            try:
+                with target_engine.begin() as conn:
+                    conn.execute(sqlalchemy.text(ddl))
+                added.append(f"{table.name}.{column.name}")
+            except Exception as exc:
+                print(f"Schema sync: unable to add {table.name}.{column.name}: {exc}")
+    if added:
+        print(f"Schema sync: added columns {', '.join(added)}")
+    return added
+
 
 def get_session():
     """Get a new database session"""

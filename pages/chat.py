@@ -33,8 +33,14 @@ from utils import (
 # Import shared sidebar
 import shared_sidebar
 
-# Import for web search functionality
-from serpapi import GoogleSearch
+# Web search for the /search command (official SerpApi client)
+from web_search import WebSearchError, format_search_results, search_web
+
+# Microsoft Purview DLP (optional integration)
+try:
+    from ms_dlp import check_prompt_with_purview
+except ImportError:  # pragma: no cover - msal not installed
+    check_prompt_with_purview = None
 
 def show():
     """Main function to display the chat interface"""
@@ -61,7 +67,7 @@ def show():
         return
 
     if st.session_state.get("must_change_password"):
-        st.warning("This account is still using the bootstrap password. Change it in Settings before using chat.")
+        st.warning("Your password is temporary. Change it in Settings > Account before using chat.")
         return
 
     # Create two columns for conversation management
@@ -576,6 +582,17 @@ def show():
 
         uploaded_file_records = build_uploaded_file_records(file_payloads)
 
+        # Evaluate the prompt against the organisation's Purview DLP policies before it
+        # is stored or sent to any model. Uploaded files are evaluated separately when
+        # they are attached to the message.
+        if check_prompt_with_purview is not None:
+            prompt_allowed, purview_message = check_prompt_with_purview(user_id, final_message)
+            if not prompt_allowed:
+                st.error(f"⛔ {purview_message}")
+                st.stop()
+            if purview_message:
+                st.warning(f"⚠️ {purview_message}")
+
         # Add message to database
         message_id, dlp_error = add_message_to_conversation(
             conversation_id=conversation_id,
@@ -606,38 +623,13 @@ def show():
             response_container = st.empty()
             response_container.info(f"🔍 Searching the web for: {search_query}")
             
-            # Check if SerpAPI key is configured in environment variables
-            serpapi_key = os.environ.get("SERPAPI_KEY", "")
-            if not serpapi_key:
-                st.warning("⚠️ SerpAPI key not found in environment variables. Please add your API key to your .env file or environment variables with the key SERPAPI_KEY.")
-            else:
-                try:
-                    # Perform the search
-                    search_params = {
-                        "q": search_query,
-                        "api_key": serpapi_key,
-                        "num": 5  # Get top 5 results
-                    }
-                    
-                    search = GoogleSearch(search_params)
-                    results = search.get_dict()
-                    
-                    # Format search results
-                    search_results = "\n\nWeb search results for query: " + search_query + "\n\n"
-                    
-                    if "organic_results" in results:
-                        for i, result in enumerate(results["organic_results"][:5], 1):
-                            title = result.get("title", "No title")
-                            snippet = result.get("snippet", "No description")
-                            link = result.get("link", "#")
-                            search_results += f"{i}. {title}\n{snippet}\nURL: {link}\n\n"
-                    else:
-                        search_results = "\n\nNo search results found.\n\n"
-                    
-                    response_container.success("✅ Search completed")
-                except Exception as e:
-                    search_results = f"\n\nError performing web search: {str(e)}\n\n"
-                    response_container.error(f"Error during search: {str(e)}")
+            try:
+                results = search_web(search_query)
+                search_results = format_search_results(search_query, results)
+                response_container.success("✅ Search completed")
+            except WebSearchError as e:
+                search_results = f"\n\nError performing web search: {str(e)}\n\n"
+                response_container.warning(f"⚠️ {str(e)}")
         
         # Get the currently selected model and character (from temporary session state)
         selected_model = st.session_state.get("temp_model", "")
@@ -692,7 +684,7 @@ def show():
             # Check environment variables for API keys
             openai_key = os.environ.get("OPENAI_API_KEY", "")
             claude_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            gemini_key = os.environ.get("GOOGLE_API_KEY", "")
+            gemini_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
             
             # Check provider settings based on the selected provider
             provider_error = get_chat_provider_precheck_error(

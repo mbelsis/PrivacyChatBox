@@ -85,6 +85,7 @@ CREATE TABLE users (
     username VARCHAR NOT NULL UNIQUE,
     password VARCHAR NOT NULL,
     role VARCHAR DEFAULT 'user',
+    must_change_password BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT NOW(),
     azure_id VARCHAR UNIQUE,
     azure_name VARCHAR
@@ -104,11 +105,11 @@ CREATE TABLE settings (
     llm_provider VARCHAR DEFAULT 'openai',
     ai_character VARCHAR DEFAULT 'assistant',
     openai_api_key VARCHAR DEFAULT '',
-    openai_model VARCHAR DEFAULT 'gpt-4o',
+    openai_model VARCHAR DEFAULT 'gpt-5.6-terra',
     claude_api_key VARCHAR DEFAULT '',
-    claude_model VARCHAR DEFAULT 'claude-3-5-sonnet-20241022',
+    claude_model VARCHAR DEFAULT 'claude-sonnet-5-5',
     gemini_api_key VARCHAR DEFAULT '',
-    gemini_model VARCHAR DEFAULT 'gemini-1.5-pro',
+    gemini_model VARCHAR DEFAULT 'gemini-3.8-flash',
     serpapi_key VARCHAR DEFAULT '',
     local_model_path VARCHAR DEFAULT '',
     local_model_context_size INTEGER DEFAULT 2048,
@@ -155,7 +156,7 @@ CREATE TABLE messages (
     id SERIAL PRIMARY KEY,
     conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
     role VARCHAR NOT NULL,
-    content TEXT NOT NULL,
+    content TEXT NOT NULL,  -- encrypted at rest when DATA_ENCRYPTION_KEY is set
     timestamp TIMESTAMP DEFAULT NOW()
 );
 
@@ -171,7 +172,7 @@ CREATE TABLE files (
     id SERIAL PRIMARY KEY,
     message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
     original_name VARCHAR NOT NULL,
-    path VARCHAR NOT NULL,
+    path VARCHAR,  -- no longer populated: upload contents are not retained
     mime_type VARCHAR NOT NULL,
     size INTEGER NOT NULL,
     scan_result JSON
@@ -210,6 +211,16 @@ User (1) ---> (0..1) Settings
   |
   +------> (0..N) DetectionEvents
 ```
+
+## Encryption at Rest and Schema Updates
+
+- Conversation titles, message content and file names are stored as `EncryptedText` (Fernet) when
+  `DATA_ENCRYPTION_KEY` is set. Without a key they are stored as plaintext and a warning is logged.
+- Privacy detection events store masked previews of matches (for example `***-**-6789`), never the raw values.
+- On start-up `init_db()` adds any missing columns automatically (additive changes only), so upgrades no longer
+  fail with "column does not exist".
+- `python migration_secure_existing_data.py` encrypts existing plaintext rows, re-encrypts with a new primary key
+  after rotation, and masks values stored by older versions. It is idempotent and runs in the Docker entrypoint.
 
 ## Database Migrations
 
@@ -307,7 +318,7 @@ To set up a new PostgreSQL database for PrivacyChatBoX:
 7. Initial Admin User Creation:
    When the application runs for the first time, it automatically creates an admin user:
    - Username: `admin`
-   - Password: `admin`
+   - Password: a random temporary password printed in the server log (or a strong `DEFAULT_ADMIN_PASSWORD`). It must be changed at first login.
    
    This is handled in the `auth.py` module through the `init_auth()` function, which is called when the application starts:
    

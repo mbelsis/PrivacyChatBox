@@ -117,11 +117,12 @@ main() {
     echo "  streamlit run app.py"
     echo ""
     
-    info "Default admin credentials:"
+    info "Bootstrap admin account:"
     echo "  Username: admin"
-    echo "  Password: admin"
+    echo "  Password: printed in the application log on first start"
+    echo "            (or DEFAULT_ADMIN_PASSWORD from .env if you set a strong one)"
     
-    warning "Make sure to change the admin password after your first login!"
+    warning "You will be asked to change the bootstrap password at first login."
     echo ""
     
     section "Docker Deployment Alternative"
@@ -440,10 +441,19 @@ setup_env_variables() {
         read -p "Microsoft Tenant ID: " ms_tenant_id
         set_env_var "MS_TENANT_ID" "$ms_tenant_id"
         
-        read -p "Microsoft DLP Endpoint ID: " ms_dlp_endpoint_id
-        set_env_var "MS_DLP_ENDPOINT_ID" "$ms_dlp_endpoint_id"
-        
-        success "Added Microsoft DLP configuration"
+        success "Added Microsoft Purview configuration"
+        info "Grant the app InformationProtectionPolicy.Read.All, Content.Process.User and ContentActivity.Write (application) with admin consent."
+    fi
+
+    # Encryption at rest: generate a key once and never overwrite an existing one.
+    existing_key=$(python -c "from dotenv import dotenv_values; print(dotenv_values('.env').get('DATA_ENCRYPTION_KEY') or '')")
+    if [ -z "$existing_key" ]; then
+        new_key=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+        set_env_var "DATA_ENCRYPTION_KEY" "$new_key"
+        success "Generated DATA_ENCRYPTION_KEY for encryption at rest"
+        warning "Back up DATA_ENCRYPTION_KEY securely: encrypted data cannot be recovered without it."
+    else
+        success "DATA_ENCRYPTION_KEY already configured"
     fi
     
     success "Environment variables configured"

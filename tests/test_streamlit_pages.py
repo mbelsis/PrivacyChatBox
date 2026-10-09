@@ -42,15 +42,6 @@ def app_db(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "SessionLocal", None)
     monkeypatch.chdir(REPO)
 
-    # The SerpAPI client may be absent; it is only needed for the /search command.
-    if "serpapi" not in sys.modules:
-        try:
-            import serpapi  # noqa: F401
-        except ImportError:
-            stub = types.ModuleType("serpapi")
-            stub.GoogleSearch = object
-            monkeypatch.setitem(sys.modules, "serpapi", stub)
-
     assert database.init_db() is True
     yield db_url
     if database.engine is not None:
@@ -118,12 +109,23 @@ def test_landing_registration_and_login(app_db):
     _assert_clean(at, "Welcome back, newuser")
     assert at.session_state["authenticated"] is True
 
-    # Bootstrap admin is flagged to change the default password.
+    # The bootstrap admin is created with a temporary password and must change it.
+    import auth
+    from database import session_scope
+    from models import User
+    from utils_auth import hash_password
+
+    with session_scope() as session:
+        admin_row = session.query(User).filter(User.username == auth.DEFAULT_BOOTSTRAP_ADMIN_USERNAME).one()
+        assert admin_row.must_change_password is True
+        assert not auth.is_using_bootstrap_password(admin_row)  # never admin/admin
+        admin_row.password = hash_password("temporary-pass-123")
+
     admin = _page("app.py").run()
-    admin.text_input("login_username").input("admin")
-    admin.text_input("login_password").input("admin")
+    admin.text_input("login_username").input(auth.DEFAULT_BOOTSTRAP_ADMIN_USERNAME)
+    admin.text_input("login_password").input("temporary-pass-123")
     admin.button("login_button").click().run()
-    _assert_clean(admin, "bootstrap account password")
+    _assert_clean(admin, "Your password is temporary")
 
 
 def test_history_page_handles_zero_conversations(app_db):

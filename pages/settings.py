@@ -54,7 +54,7 @@ def show():
         return
 
     if st.session_state.get("must_change_password"):
-        st.warning("This account is still using the bootstrap password. Change it now.")
+        st.warning("Your password is temporary. Change it now in the Account tab.")
     
     # Create tabs for different settings categories
     ai_tab, privacy_tab, custom_tab, account_tab, config_tab = st.tabs([
@@ -192,7 +192,7 @@ def show():
             st.subheader("Gemini Settings")
             
             # Use environment variable if available, otherwise show as empty
-            env_gemini_key = os.environ.get("GOOGLE_API_KEY", "")
+            env_gemini_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
             gemini_key_status = "Set in environment" if env_gemini_key else "Not set"
             
             st.info(f"Gemini API Key status: **{gemini_key_status}**")
@@ -617,7 +617,7 @@ def show():
                 "MS_CLIENT_ID": "Microsoft App client ID for DLP integration",
                 "MS_CLIENT_SECRET": "Client secret for the Microsoft app",
                 "MS_TENANT_ID": "Your Microsoft tenant ID",
-                "MS_DLP_ENDPOINT_ID": "The endpoint ID for Microsoft DLP services"
+                "MS_PURVIEW_APPLICATION_ID": "Optional: Entra application targeted by Purview DLP policies (defaults to MS_CLIENT_ID)"
             }
             
             # Display the required environment variables

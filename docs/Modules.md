@@ -43,6 +43,7 @@ Integrates multiple AI providers (OpenAI, Claude, Gemini, local LLMs) with unifi
 - `get_user_settings(user_id)`: Retrieves user-specific AI settings
 - `create_system_prompt(ai_character)`: Creates appropriate system prompts
 - `get_ai_response(user_id, messages, stream, override_model, override_provider)`: Main function to get AI responses
+- `get_gemini_response(...)` uses the `google-genai` SDK with a real system instruction
 - `get_openai_response(settings, messages, stream)`: OpenAI-specific implementation
 - `get_claude_response(settings, messages, stream)`: Claude-specific implementation
 - `get_gemini_response(settings, messages, stream)`: Gemini-specific implementation
@@ -66,15 +67,31 @@ Provides functionality to scan text and files for sensitive information.
 
 ### `ms_dlp.py`
 
-Microsoft Data Loss Prevention (DLP) integration for enhanced file sensitivity detection.
+Microsoft Purview / Information Protection integration (see README > Microsoft Purview DLP).
 
 **Key Functions:**
-- `get_ms_settings()`: Gets Microsoft settings from environment variables
-- `get_ms_graph_token()`: Gets a Microsoft Graph API token
-- `check_sensitivity_label(file_path, file_mime)`: Checks files for sensitivity labels
-- `report_dlp_violation(user_id, file_path, file_name, sensitivity_info)`: Reports DLP violations
-- `scan_file_for_sensitivity(user_id, file_path, file_name, file_mime)`: Main scan function
-- `is_dlp_integration_enabled(user_id)`: Checks if DLP is enabled for a user
+- `get_ms_settings()`: Microsoft settings from environment variables
+- `get_ms_graph_token()`: App-only Microsoft Graph token via MSAL
+- `extract_sensitivity_labels(file_path)`: Reads `MSIP_Label_*` metadata from Office files, PDFs and e-mails (offline)
+- `get_tenant_sensitivity_labels()`: Resolves label IDs to names via Graph (cached)
+- `classify_label_level(label)`: Maps a label to a sensitivity level
+- `evaluate_with_purview(user_id, text, name, activity)`: Graph v1.0 `processContent` DLP evaluation
+- `record_purview_activity(user_id, name, activity)`: Graph v1.0 `contentActivities` audit record
+- `scan_file_for_sensitivity(user_id, file_path, file_name, file_mime, file_text)`: Upload enforcement
+- `check_prompt_with_purview(user_id, text)`: Prompt enforcement before AI calls
+- `is_dlp_integration_enabled(user_id)`: Whether DLP applies to a user
+
+### `data_protection.py`
+
+Encryption at rest (`EncryptedText` column type, Fernet with key rotation) and masking of detected values in audit logs.
+
+### `model_catalog.py`
+
+Supported AI model IDs per provider, environment overrides, and resolution of retired model IDs.
+
+### `web_search.py`
+
+`/search` command support through the official `serpapi` client.
 
 ## Authentication
 
@@ -108,7 +125,7 @@ Integrates Azure Active Directory authentication for enterprise users.
 Helper functions for authentication.
 
 **Key Functions:**
-- `hash_password(password)`: Hashes a password using SHA-256
+- `hash_password(password)`: Hashes a password with salted PBKDF2-HMAC-SHA256 (600,000 iterations); legacy SHA-256 hashes are upgraded at login
 
 ## UI and Presentation
 

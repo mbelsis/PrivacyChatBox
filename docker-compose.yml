@@ -21,6 +21,8 @@ services:
       - PGDATABASE=privacychatbox
       - PGPORT=5432
       - ALLOW_SELF_REGISTRATION=false
+      # Encryption at rest for conversation content (strongly recommended):
+      # - DATA_ENCRYPTION_KEY=your_fernet_key
       # You can add other environment variables here
       # - OPENAI_API_KEY=your_openai_key
       # - ANTHROPIC_API_KEY=your_claude_key

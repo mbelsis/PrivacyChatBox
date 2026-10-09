@@ -1,403 +1,616 @@
-import os
+"""
+Microsoft Purview / Information Protection integration.
+
+Three real Microsoft mechanisms are used:
+
+1. **Sensitivity labels read from file metadata (offline).**
+   Purview-labelled Office files, PDFs and e-mails carry ``MSIP_Label_<GUID>_*``
+   properties (``docProps/custom.xml``, ``docMetadata/LabelInfo.xml``, PDF XMP /
+   document info, ``msip_labels`` e-mail header). Reading them locally means a file
+   never has to leave the server just to learn its label.
+
+2. **Label resolution through Microsoft Graph.**
+   ``GET /beta/security/informationProtection/sensitivityLabels`` (application
+   permission ``InformationProtectionPolicy.Read.All``) turns label GUIDs into
+   display names, which are mapped to the application's sensitivity levels.
+
+3. **Purview DLP policy evaluation through Microsoft Graph v1.0.**
+   ``POST /v1.0/users/{id}/dataSecurityAndGovernance/processContent`` (application
+   permission ``Content.Process.User``) evaluates prompts and file text against the
+   tenant's DLP policies for this Entra application and returns the action to
+   enforce. Blocks decided locally are recorded in Purview audit with
+   ``POST /v1.0/users/{id}/dataSecurityAndGovernance/activities/contentActivities``
+   (``ContentActivity.Write``).
+
+Purview evaluation requires a Microsoft Entra user object ID, so it applies to users
+who signed in with Azure AD. Label-based blocking applies to every user.
+"""
+
 import json
 import logging
-import mimetypes
-from typing import Dict, List, Tuple, Optional, Any
+import os
+import re
+import threading
+import time
+import uuid
+import zipfile
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
 import msal
 import requests
-from datetime import datetime
-from threading import Lock
-import streamlit as st
-from database import get_session, session_scope
-from models import User, Settings, DetectionEvent
 
-# Logging setup
-logging.basicConfig(level=logging.INFO)
+from database import session_scope
+from models import DetectionEvent, Settings, User
+
 logger = logging.getLogger("ms_dlp")
 
-# Constants
-MS_GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
-MS_DLP_ENDPOINT = "https://api.security.microsoft.com/api/sensitivityLabels"
-MS_COMPLIANCE_ENDPOINT = "https://compliance.microsoft.com/api/dlp/incidents"
+GRAPH_ROOT = "https://graph.microsoft.com"
+GRAPH_SCOPE = ["https://graph.microsoft.com/.default"]
 
-# Sensitivity levels in order of increasing sensitivity
+# Network timeout (connect, read) for Microsoft Graph calls.
+HTTP_TIMEOUT = (10, 30)
+
+# Sensitivity levels in order of increasing sensitivity. User thresholds are stored
+# as these keys in ``Settings.ms_dlp_sensitivity_threshold``.
 SENSITIVITY_LEVELS = {
-    "general": 0,  # Public/General
-    "internal": 1,  # Internal Only
-    "confidential": 2,  # Confidential
-    "highly_confidential": 3,  # Highly Confidential
-    "secret": 4,  # Secret
-    "top_secret": 5   # Top Secret
+    "general": 0,
+    "internal": 1,
+    "confidential": 2,
+    "highly_confidential": 3,
+    "secret": 4,
+    "top_secret": 5,
 }
 
-# Network timeout (connect, read) for calls to Microsoft APIs. Without it a stalled
-# connection would block the Streamlit script indefinitely.
-HTTP_TIMEOUT = (10, 60)
+# Phrases recognised in label names, mapped to levels. A label name matching several
+# phrases (e.g. "Confidential - Internal") takes the most sensitive match.
+_LEVEL_PHRASES = [
+    ("top secret", "top_secret"),
+    ("highly confidential", "highly_confidential"),
+    ("strictly confidential", "highly_confidential"),
+    ("restricted", "highly_confidential"),
+    ("secret", "secret"),
+    ("confidential", "confidential"),
+    ("internal", "internal"),
+    ("general", "general"),
+    ("public", "general"),
+    ("personal", "general"),
+    ("non-business", "general"),
+]
 
-# Cache for MS Graph authentication tokens
-TOKEN_CACHE = {}
-TOKEN_CACHE_LOCK = Lock()
+_GUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_MSIP_PROPERTY = re.compile(
+    r"MSIP_Label_(" + _GUID + r")_(Enabled|Name|SiteId|Method|ContentBits|Removed)"
+    # Separators never span a line break, so a closing XML tag cannot capture the next line.
+    r"[ \t\"'=:>(]{1,8}([^;<)\"'\r\n]{0,200})"
+)
+_LABELINFO_NS = "{http://schemas.microsoft.com/office/2020/mipLabelMetadata}"
 
-def get_ms_settings() -> Dict[str, str]:
-    """Get Microsoft settings from environment variables"""
-    required_settings = [
-        "MS_CLIENT_ID",
-        "MS_CLIENT_SECRET",
-        "MS_TENANT_ID",
-        "MS_DLP_ENDPOINT_ID"
-    ]
-    
-    settings = {}
-    missing_settings = []
-    
-    for setting in required_settings:
-        value = os.environ.get(setting)
-        if not value:
-            missing_settings.append(setting)
-        settings[setting] = value
-    
-    if missing_settings:
-        missing_str = ", ".join(missing_settings)
-        logger.error(f"Missing required Microsoft settings: {missing_str}")
-        settings["is_configured"] = False
-    else:
-        settings["is_configured"] = True
-        
+# Maximum bytes scanned when looking for label metadata in non-zip formats.
+_MAX_METADATA_SCAN_BYTES = 8 * 1024 * 1024
+# Maximum characters of text sent to Purview in one processContent call.
+_MAX_PURVIEW_TEXT_CHARS = 100_000
+
+_LABEL_CACHE: Dict[str, Any] = {"expires_at": 0.0, "labels": {}}
+_LABEL_CACHE_TTL_SECONDS = 3600
+_MSAL_APPS: Dict[Tuple[str, str], msal.ConfidentialClientApplication] = {}
+_LOCK = threading.Lock()
+
+
+# --------------------------------------------------------------------------------------
+# Configuration
+# --------------------------------------------------------------------------------------
+
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_ms_settings() -> Dict[str, Any]:
+    """Microsoft integration settings from the environment."""
+    settings: Dict[str, Any] = {
+        "MS_CLIENT_ID": os.environ.get("MS_CLIENT_ID", ""),
+        "MS_CLIENT_SECRET": os.environ.get("MS_CLIENT_SECRET", ""),
+        "MS_TENANT_ID": os.environ.get("MS_TENANT_ID", ""),
+        # Entra application whose Purview DLP policies apply. Defaults to MS_CLIENT_ID.
+        "MS_PURVIEW_APPLICATION_ID": os.environ.get("MS_PURVIEW_APPLICATION_ID") or os.environ.get("MS_CLIENT_ID", ""),
+        "MS_PURVIEW_APP_NAME": os.environ.get("MS_PURVIEW_APP_NAME", "PrivacyChatBoX"),
+        "purview_enabled": _env_flag("MS_PURVIEW_PROCESS_CONTENT", True),
+        "fail_closed": _env_flag("MS_PURVIEW_FAIL_CLOSED", False),
+    }
+    missing = [key for key in ("MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_TENANT_ID") if not settings[key]]
+    settings["is_configured"] = not missing
+    settings["missing"] = missing
+    if os.environ.get("MS_DLP_ENDPOINT_ID"):
+        logger.info("MS_DLP_ENDPOINT_ID is no longer used and can be removed.")
     return settings
 
+
+def _msal_app(settings: Dict[str, Any]) -> msal.ConfidentialClientApplication:
+    key = (settings["MS_CLIENT_ID"], settings["MS_TENANT_ID"])
+    with _LOCK:
+        app = _MSAL_APPS.get(key)
+        if app is None:
+            app = msal.ConfidentialClientApplication(
+                settings["MS_CLIENT_ID"],
+                client_credential=settings["MS_CLIENT_SECRET"],
+                authority=f"https://login.microsoftonline.com/{settings['MS_TENANT_ID']}",
+            )
+            _MSAL_APPS[key] = app
+        return app
+
+
 def get_ms_graph_token() -> Optional[str]:
-    """Get a Microsoft Graph API token"""
+    """App-only Microsoft Graph token (MSAL caches and refreshes it internally)."""
     settings = get_ms_settings()
-    
     if not settings["is_configured"]:
         return None
-    
-    # Check if we have a valid cached token
-    cache_key = f"{settings['MS_CLIENT_ID']}_{settings['MS_TENANT_ID']}"
-    with TOKEN_CACHE_LOCK:
-        if cache_key in TOKEN_CACHE:
-            token_info = TOKEN_CACHE[cache_key]
-            if token_info["expires_at"] > datetime.now().timestamp():
-                return token_info["access_token"]
-    
-    # No valid token in cache, get a new one
-    authority = f"https://login.microsoftonline.com/{settings['MS_TENANT_ID']}"
-    scopes = ["https://graph.microsoft.com/.default"]
-    
-    app = msal.ConfidentialClientApplication(
-        settings["MS_CLIENT_ID"],
-        client_credential=settings["MS_CLIENT_SECRET"],
-        authority=authority
-    )
-    
-    result = app.acquire_token_for_client(scopes=scopes)
-    
+    result = _msal_app(settings).acquire_token_for_client(scopes=GRAPH_SCOPE)
     if "access_token" in result:
-        # Cache the token
-        with TOKEN_CACHE_LOCK:
-            TOKEN_CACHE[cache_key] = {
-                "access_token": result["access_token"],
-                "expires_at": datetime.now().timestamp() + result["expires_in"]
-            }
         return result["access_token"]
-    else:
-        logger.error(f"Error getting Microsoft Graph token: {result.get('error')}")
-        logger.error(f"Error description: {result.get('error_description')}")
-        return None
+    logger.error("Microsoft Graph token request failed: %s %s", result.get("error"), result.get("error_description"))
+    return None
 
-def check_sensitivity_label(file_path: str, file_mime: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
-    """
-    Check if a file has Microsoft Sensitivity labels
-    
-    Args:
-        file_path: Path to the file to check
-        file_mime: MIME type of the file
-        
-    Returns:
-        Tuple containing:
-            - Boolean indicating if the file has a sensitivity label above the threshold
-            - Dictionary with sensitivity information or None if no sensitivity found
-    """
-    # Get Microsoft Graph API token
-    token = get_ms_graph_token()
-    if not token:
-        logger.warning("Unable to get Microsoft Graph token, skipping sensitivity check")
-        return False, None
-    
-    # Supported file types for sensitivity labels
-    supported_extensions = [
-        ".docx", ".xlsx", ".pptx",  # Office formats
-        ".pdf",  # PDF
-        ".txt", ".csv",  # Text formats
-        ".msg", ".eml"  # Email formats
-    ]
-    
-    # Check if file extension is supported
-    file_ext = os.path.splitext(file_path)[1].lower()
-    if file_ext not in supported_extensions:
-        logger.info(f"File type {file_ext} not supported for sensitivity label checking")
-        return False, None
-    
-    try:
-        # Read the file
-        with open(file_path, "rb") as f:
-            file_content = f.read()
-            
-        # Get MS settings
-        settings = get_ms_settings()
-        
-        # Set up headers for API call
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": file_mime
-        }
-        
-        # Call Microsoft DLP API to check for sensitivity labels
-        endpoint = f"{MS_DLP_ENDPOINT}/check"
-        response = requests.post(
-            endpoint,
-            headers=headers,
-            data=file_content,
-            timeout=HTTP_TIMEOUT
-        )
-        
-        # Throw an error if response is not successful
-        response.raise_for_status()
-        
-        # Parse the response
-        label_info = response.json()
-        
-        # Check if any sensitivity label was found
-        if not label_info.get("sensitivityLabel"):
-            return False, None
-        
-        # Extract sensitivity level and return the sensitivity info
-        # Note: We only return the sensitivity info here, the threshold check is done in scan_file_for_sensitivity
-        # where we have access to user-specific settings
-        sensitivity = label_info["sensitivityLabel"]
-        
-        # Return False for exceeds_threshold since we'll check this in scan_file_for_sensitivity
-        # with the user's specific threshold setting
-        return False, sensitivity
-        
-    except Exception as e:
-        logger.error(f"Error checking sensitivity label: {str(e)}")
-        return False, None
 
-def report_dlp_violation(
-    user_id: int,
-    file_path: str, 
-    file_name: str,
-    sensitivity_info: Dict[str, Any]
-) -> bool:
+def _graph_request(method: str, path: str, token: str, **kwargs) -> requests.Response:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "client-request-id": str(uuid.uuid4()),
+    }
+    headers.update(kwargs.pop("headers", {}))
+    return requests.request(method, f"{GRAPH_ROOT}{path}", headers=headers, timeout=HTTP_TIMEOUT, **kwargs)
+
+
+# --------------------------------------------------------------------------------------
+# 1. Label extraction from file metadata
+# --------------------------------------------------------------------------------------
+
+def _collect_msip_properties(text: str, labels: Dict[str, Dict[str, Any]], source: str) -> None:
+    for guid, prop, raw_value in _MSIP_PROPERTY.findall(text):
+        entry = labels.setdefault(guid.lower(), {"id": guid.lower(), "source": source})
+        value = raw_value.strip()
+        # XML closing tags (</...MSIP_Label_x_Name>) match with an empty value; never
+        # let them erase a value captured from the opening tag.
+        if value or prop.lower() not in entry:
+            entry[prop.lower()] = value
+
+
+def _labels_from_office_zip(archive: zipfile.ZipFile) -> Dict[str, Dict[str, Any]]:
+    labels: Dict[str, Dict[str, Any]] = {}
+    names = set(archive.namelist())
+
+    if "docProps/custom.xml" in names:
+        try:
+            root = ET.fromstring(archive.read("docProps/custom.xml"))
+            for prop in root:
+                prop_name = prop.attrib.get("name", "")
+                value = "".join(child.text or "" for child in prop)
+                _collect_msip_properties(f"{prop_name}={value};", labels, "docProps/custom.xml")
+        except ET.ParseError:
+            pass
+
+    if "docMetadata/LabelInfo.xml" in names:
+        try:
+            root = ET.fromstring(archive.read("docMetadata/LabelInfo.xml"))
+            for node in root.iter(f"{_LABELINFO_NS}label"):
+                guid = node.attrib.get("id", "").strip("{}").lower()
+                if not re.fullmatch(_GUID, guid):
+                    continue
+                entry = labels.setdefault(guid, {"id": guid, "source": "docMetadata/LabelInfo.xml"})
+                entry["enabled"] = "true" if node.attrib.get("enabled") in {"1", "true"} else "false"
+                entry["removed"] = "true" if node.attrib.get("removed") in {"1", "true"} else "false"
+                entry["method"] = node.attrib.get("method", "")
+                entry["siteid"] = node.attrib.get("siteId", "").strip("{}")
+        except ET.ParseError:
+            pass
+
+    return labels
+
+
+def extract_sensitivity_labels(file_path: str) -> List[Dict[str, Any]]:
     """
-    Report a DLP violation to Microsoft
-    
-    Args:
-        user_id: ID of the user who tried to upload the file
-        file_path: Path to the sensitive file
-        file_name: Original name of the file
-        sensitivity_info: Sensitivity information from the check
-        
-    Returns:
-        Boolean indicating success
+    Return the active sensitivity labels embedded in a file.
+
+    Each label is a dict with ``id`` (GUID) and, when present in the metadata,
+    ``name``, ``method`` and ``siteid``. Removed or disabled labels are ignored.
     """
-    # Get Microsoft Graph API token
-    token = get_ms_graph_token()
-    if not token:
-        logger.warning("Unable to get Microsoft Graph token, skipping DLP violation report")
-        return False
-    
+    labels: Dict[str, Dict[str, Any]] = {}
     try:
-        # Get user information
-        with session_scope() as session:
-            user = session.query(User).filter(User.id == user_id).first()
-            username = user.username if user else "Unknown"
-            azure_id = user.azure_id if user else None
-        
-        # Get MS settings
-        settings = get_ms_settings()
-        
-        # Create payload for DLP incident
-        payload = {
-            "title": f"Sensitive file upload blocked: {file_name}",
-            "description": f"User {username} attempted to upload a sensitive file to PrivacyChatBoX",
-            "severity": "medium",
-            "status": "active",
-            "sensitivityLevel": sensitivity_info.get("sensitivity", "unknown"),
-            "sensitivityLabelId": sensitivity_info.get("id", "unknown"),
-            "contentInfo": {
-                "fileName": file_name,
-                "fileType": os.path.splitext(file_name)[1].lower(),
-                "sensitivityLabelName": sensitivity_info.get("name", "Unknown"),
-                "detectedTime": datetime.now().isoformat()
-            },
-            "userInfo": {
-                "username": username,
-                "azureId": azure_id
-            },
-            "appInfo": {
-                "appName": "PrivacyChatBoX",
-                "appId": settings.get("MS_CLIENT_ID")
-            },
-            "endpointId": settings.get("MS_DLP_ENDPOINT_ID")
-        }
-        
-        # Set up headers for API call
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-        
-        # Call Microsoft DLP API to report the incident
-        endpoint = MS_COMPLIANCE_ENDPOINT
-        response = requests.post(
-            endpoint,
-            headers=headers,
-            json=payload,
-            timeout=HTTP_TIMEOUT
-        )
-        
-        # Check response
-        if response.status_code in (200, 201, 202, 204):
-            logger.info(f"Successfully reported DLP violation for file: {file_name}")
-            
-            # Log the event in our database
-            with session_scope() as session:
-                event = DetectionEvent(
-                    user_id=user_id,
-                    action="block_sensitive_file",
-                    severity="high",
-                    detected_patterns={"sensitivity_label": [sensitivity_info]},
-                    file_names=file_name
-                )
-                session.add(event)
-                
-            return True
+        if zipfile.is_zipfile(file_path):
+            with zipfile.ZipFile(file_path) as archive:
+                labels = _labels_from_office_zip(archive)
         else:
-            logger.error(f"Error reporting DLP violation: {response.status_code} - {response.text}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Error reporting DLP violation: {str(e)}")
-        return False
+            with open(file_path, "rb") as handle:
+                data = handle.read(_MAX_METADATA_SCAN_BYTES)
+            # PDF XMP / info dictionary and RFC 822 headers are ASCII-compatible;
+            # Outlook .msg files store properties as UTF-16LE.
+            _collect_msip_properties(data.decode("latin-1"), labels, "embedded metadata")
+            for offset in (0, 1):
+                _collect_msip_properties(data[offset:].decode("utf-16-le", errors="ignore"), labels, "embedded metadata")
+    except (OSError, zipfile.BadZipFile) as exc:
+        logger.warning("Unable to read sensitivity label metadata from %s: %s", file_path, exc)
+        return []
 
-def scan_file_for_sensitivity(user_id: int, file_path: str, file_name: str, file_mime: str) -> Tuple[bool, Optional[str]]:
+    active = []
+    for label in labels.values():
+        if label.get("enabled", "true").lower() != "true":
+            continue
+        if label.get("removed", "false").lower() == "true":
+            continue
+        active.append(label)
+    return active
+
+
+# --------------------------------------------------------------------------------------
+# 2. Label resolution and classification
+# --------------------------------------------------------------------------------------
+
+def get_tenant_sensitivity_labels(force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+    """Tenant label catalogue keyed by lowercase GUID (cached for an hour)."""
+    now = time.time()
+    with _LOCK:
+        if not force_refresh and _LABEL_CACHE["expires_at"] > now:
+            return _LABEL_CACHE["labels"]
+
+    labels: Dict[str, Dict[str, Any]] = {}
+    token = get_ms_graph_token()
+    if token:
+        try:
+            response = _graph_request("GET", "/beta/security/informationProtection/sensitivityLabels", token)
+            if response.status_code == 200:
+                for item in response.json().get("value", []):
+                    labels[str(item.get("id", "")).lower()] = {
+                        "id": str(item.get("id", "")).lower(),
+                        "name": item.get("displayName") or item.get("name") or "",
+                        "sensitivity": item.get("sensitivity"),
+                    }
+            else:
+                logger.warning("Listing sensitivity labels failed: %s %s", response.status_code, response.text[:300])
+        except requests.RequestException as exc:
+            logger.warning("Listing sensitivity labels failed: %s", exc)
+
+    with _LOCK:
+        _LABEL_CACHE["labels"] = labels
+        # Retry sooner after a failure so a transient outage does not stick for an hour.
+        _LABEL_CACHE["expires_at"] = now + (_LABEL_CACHE_TTL_SECONDS if labels else 300)
+    return labels
+
+
+def _configured_label_levels() -> Dict[str, str]:
+    raw = os.environ.get("MS_DLP_LABEL_LEVELS", "").strip()
+    if not raw:
+        return {}
+    try:
+        mapping = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.error("MS_DLP_LABEL_LEVELS is not valid JSON; ignoring it.")
+        return {}
+    return {
+        str(key).strip().lower(): str(value).strip().lower()
+        for key, value in mapping.items()
+        if str(value).strip().lower() in SENSITIVITY_LEVELS
+    }
+
+
+def classify_label_level(label: Dict[str, Any]) -> str:
     """
-    Scan a file for Microsoft Sensitivity labels and block if needed
-    
-    Args:
-        user_id: ID of the user who uploaded the file
-        file_path: Path to the file to scan
-        file_name: Original name of the file
-        file_mime: MIME type of the file
-        
-    Returns:
-        Tuple containing:
-            - Boolean indicating if the file is allowed (True) or blocked (False)
-            - Error message if blocked, None otherwise
+    Map a label to one of :data:`SENSITIVITY_LEVELS`.
+
+    Order: explicit ``MS_DLP_LABEL_LEVELS`` mapping (by GUID or name), then phrases in
+    the label name, then ``MS_DLP_UNKNOWN_LABEL_LEVEL`` (default ``confidential``,
+    i.e. unknown labels are treated as sensitive rather than ignored).
     """
-    # Check if DLP integration is enabled for this user
-    if not is_dlp_integration_enabled(user_id):
-        return True, None
-    
-    # Get user settings for the sensitivity threshold
-    blocking_threshold = "confidential"  # Default threshold
+    overrides = _configured_label_levels()
+    label_id = str(label.get("id", "")).lower()
+    name = str(label.get("name", "") or "")
+    for key in (label_id, name.lower()):
+        if key and key in overrides:
+            return overrides[key]
+
+    normalized = re.sub(r"\s+", " ", re.sub(r"[_\\/|]+", " ", name.lower())).strip()
+    matches = [level for phrase, level in _LEVEL_PHRASES if phrase in normalized]
+    if matches:
+        return max(matches, key=lambda level: SENSITIVITY_LEVELS[level])
+
+    fallback = os.environ.get("MS_DLP_UNKNOWN_LABEL_LEVEL", "confidential").strip().lower()
+    return fallback if fallback in SENSITIVITY_LEVELS else "confidential"
+
+
+def resolve_file_labels(file_path: str) -> List[Dict[str, Any]]:
+    """Extract a file's labels and annotate each with ``name`` and ``level``."""
+    labels = extract_sensitivity_labels(file_path)
+    if not labels:
+        return []
+    tenant_labels = get_tenant_sensitivity_labels() if any(not label.get("name") for label in labels) else {}
+    for label in labels:
+        if not label.get("name"):
+            label["name"] = tenant_labels.get(label["id"], {}).get("name", "")
+        label["level"] = classify_label_level(label)
+    return labels
+
+
+def check_sensitivity_label(file_path: str, file_mime: Optional[str] = None) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """
+    Backwards-compatible helper: return ``(False, most_sensitive_label)``.
+
+    The threshold comparison happens in :func:`scan_file_for_sensitivity`, which knows
+    the user's configured threshold.
+    """
+    labels = resolve_file_labels(file_path)
+    if not labels:
+        return False, None
+    return False, max(labels, key=lambda label: SENSITIVITY_LEVELS[label["level"]])
+
+
+# --------------------------------------------------------------------------------------
+# 3. Purview DLP evaluation (processContent) and audit (contentActivities)
+# --------------------------------------------------------------------------------------
+
+@dataclass
+class PurviewDecision:
+    allowed: bool = True
+    evaluated: bool = False
+    restriction: Optional[str] = None  # "block", "warn" or "audit"
+    errors: List[str] = field(default_factory=list)
+
+    @property
+    def warn(self) -> bool:
+        return self.restriction == "warn"
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def build_purview_request(
+    text: Optional[str],
+    content_name: str,
+    activity: str,
+    settings: Dict[str, Any],
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a ``processContentRequest`` body (also used for contentActivities)."""
+    now = _iso_now()
+    entry: Dict[str, Any] = {
+        "@odata.type": "microsoft.graph.processConversationMetadata",
+        "identifier": str(uuid.uuid4()),
+        "name": content_name,
+        "correlationId": correlation_id or str(uuid.uuid4()),
+        "sequenceNumber": 0,
+        "isTruncated": False,
+        "createdDateTime": now,
+        "modifiedDateTime": now,
+    }
+    if text is not None:
+        truncated = text[:_MAX_PURVIEW_TEXT_CHARS]
+        entry["content"] = {"@odata.type": "microsoft.graph.textContent", "data": truncated}
+        entry["isTruncated"] = len(truncated) < len(text)
+        entry["length"] = len(text.encode("utf-8"))
+
+    app_metadata = {"name": settings["MS_PURVIEW_APP_NAME"], "version": "1.0"}
+    return {
+        "contentToProcess": {
+            "contentEntries": [entry],
+            "activityMetadata": {"activity": activity},
+            "deviceMetadata": {"deviceType": "Unmanaged"},
+            "protectedAppMetadata": {
+                **app_metadata,
+                "applicationLocation": {
+                    "@odata.type": "microsoft.graph.policyLocationApplication",
+                    "value": settings["MS_PURVIEW_APPLICATION_ID"],
+                },
+            },
+            "integratedAppMetadata": app_metadata,
+        }
+    }
+
+
+def parse_purview_response(payload: Dict[str, Any]) -> PurviewDecision:
+    """Translate a ``processContentResponse`` into an enforcement decision."""
+    decision = PurviewDecision(evaluated=True)
+    restrictions = [
+        str(action.get("restrictionAction", "")).lower()
+        for action in payload.get("policyActions") or []
+        if str(action.get("action", "")).lower() == "restrictaccess"
+    ]
+    for level in ("block", "warn", "audit"):
+        if level in restrictions:
+            decision.restriction = level
+            break
+    decision.allowed = decision.restriction != "block"
+    decision.errors = [
+        str(error.get("message") or error.get("errorType") or error)
+        for error in payload.get("processingErrors") or []
+    ]
+    return decision
+
+
+def get_entra_object_id(user_id: int) -> Optional[str]:
+    """Microsoft Entra object ID for a local user (set when they sign in with Azure AD)."""
     with session_scope() as session:
-        user_settings = session.query(Settings).filter(
-            Settings.user_id == user_id
-        ).first()
-        
-        if user_settings and hasattr(user_settings, "ms_dlp_sensitivity_threshold"):
-            blocking_threshold = user_settings.ms_dlp_sensitivity_threshold
-    
-    # Check for sensitivity labels
-    exceeds_threshold, sensitivity_info = check_sensitivity_label(file_path, file_mime)
-    
-    # If sensitivity info was found, we need to manually determine if it exceeds the threshold
-    # rather than using the value from check_sensitivity_label which uses a hardcoded threshold
-    if sensitivity_info:
-        # Extract sensitivity level
-        sensitivity_level = sensitivity_info.get("sensitivity") or "general"
-        
-        # Convert to numerical values for comparison
-        detected_level = SENSITIVITY_LEVELS.get(sensitivity_level.lower(), 0)
-        threshold_level = SENSITIVITY_LEVELS.get(blocking_threshold.lower(), 2)  # Default is confidential (2)
-        
-        # Determine if file exceeds threshold based on user settings
-        exceeds_threshold = detected_level >= threshold_level
-    
-    if exceeds_threshold and sensitivity_info:
-        # File has sensitivity label above threshold, block it
-        
-        # Report the violation to Microsoft DLP
-        report_success = report_dlp_violation(user_id, file_path, file_name, sensitivity_info)
-        
-        # Create error message
-        sensitivity_name = sensitivity_info.get("name", "Unknown")
-        error_message = (
-            f"File blocked due to Microsoft sensitivity label: {sensitivity_name}. "
-            f"This file has been flagged as sensitive content and cannot be uploaded."
-        )
-        
-        return False, error_message
-    
-    # No sensitivity label or below threshold, allow the file
-    return True, None
+        row = session.query(User.azure_id).filter(User.id == user_id).first()
+        return row[0] if row and row[0] else None
 
-def setup_ms_dlp_integration():
+
+def evaluate_with_purview(user_id: int, text: str, content_name: str, activity: str = "uploadText") -> PurviewDecision:
     """
-    Set up Microsoft DLP integration - run this to add columns to Settings model if needed
-    (For future implementation)
+    Evaluate content against the tenant's Purview DLP policies.
+
+    Returns an "allowed, not evaluated" decision when Purview evaluation does not
+    apply (not configured, disabled, or a local account without an Entra identity).
+    Errors fail open unless ``MS_PURVIEW_FAIL_CLOSED=true``.
     """
-    # This function is a placeholder for future enhancements
-    # such as adding DLP-specific columns to the Settings model
-    # or creating new tables for DLP configurations
-    pass
+    settings = get_ms_settings()
+    if not (settings["is_configured"] and settings["purview_enabled"]) or not text:
+        return PurviewDecision()
+
+    entra_id = get_entra_object_id(user_id)
+    if not entra_id:
+        return PurviewDecision()
+
+    failure = PurviewDecision(allowed=not settings["fail_closed"])
+    token = get_ms_graph_token()
+    if not token:
+        failure.errors.append("Unable to obtain a Microsoft Graph token.")
+        return failure
+
+    body = build_purview_request(text, content_name, activity, settings)
+    try:
+        response = _graph_request(
+            "POST", f"/v1.0/users/{entra_id}/dataSecurityAndGovernance/processContent", token, json=body
+        )
+    except requests.RequestException as exc:
+        failure.errors.append(f"Purview request failed: {exc}")
+        logger.error(failure.errors[-1])
+        return failure
+
+    if response.status_code != 200:
+        failure.errors.append(f"Purview processContent returned {response.status_code}: {response.text[:300]}")
+        logger.error(failure.errors[-1])
+        return failure
+
+    decision = parse_purview_response(response.json())
+    for error in decision.errors:
+        logger.warning("Purview processing error: %s", error)
+    return decision
+
+
+def record_purview_activity(user_id: int, content_name: str, activity: str = "uploadFile") -> bool:
+    """Record an activity in Purview audit (no content is sent). Best effort."""
+    settings = get_ms_settings()
+    entra_id = get_entra_object_id(user_id) if settings["is_configured"] else None
+    if not entra_id:
+        return False
+    token = get_ms_graph_token()
+    if not token:
+        return False
+    body = build_purview_request(None, content_name, activity, settings)
+    try:
+        response = _graph_request(
+            "POST", f"/v1.0/users/{entra_id}/dataSecurityAndGovernance/activities/contentActivities", token, json=body
+        )
+    except requests.RequestException as exc:
+        logger.warning("Recording Purview content activity failed: %s", exc)
+        return False
+    if response.status_code not in (200, 201, 204):
+        logger.warning("Recording Purview content activity failed: %s %s", response.status_code, response.text[:300])
+        return False
+    return True
+
+
+def _log_block_event(user_id: int, action: str, details: Dict[str, List[Any]], file_name: str = "") -> None:
+    try:
+        with session_scope() as session:
+            session.add(DetectionEvent(
+                user_id=user_id,
+                action=action,
+                severity="high",
+                detected_patterns=details,
+                file_names=file_name,
+            ))
+    except Exception as exc:
+        logger.error("Unable to log DLP block event: %s", exc)
+
+
+# --------------------------------------------------------------------------------------
+# Public entry points used by the application
+# --------------------------------------------------------------------------------------
 
 def is_dlp_integration_enabled(user_id: int) -> bool:
-    """
-    Check if Microsoft DLP integration is enabled for a user
-    
-    Args:
-        user_id: ID of the user
-        
-    Returns:
-        Boolean indicating if DLP integration is enabled
-    """
-    # Check if Microsoft settings are configured
-    settings = get_ms_settings()
-    if not settings["is_configured"]:
+    """DLP is active when Microsoft credentials are configured and the user has it enabled."""
+    if not get_ms_settings()["is_configured"]:
         return False
-    
-    # Check if the columns exist in the database
     with session_scope() as session:
-        import sqlalchemy as sa
-        from sqlalchemy import inspect
-        
-        # Get the table inspector
-        inspector = inspect(session.bind)
-        columns = [column['name'] for column in inspector.get_columns('settings')]
-        
-        # If the required columns don't exist, run the migration
-        if 'enable_ms_dlp' not in columns or 'ms_dlp_sensitivity_threshold' not in columns:
-            logger.warning("DLP columns don't exist in Settings table, running migration...")
+        row = session.query(Settings.enable_ms_dlp).filter(Settings.user_id == user_id).first()
+    return True if row is None or row[0] is None else bool(row[0])
 
-            # Run the migration to add the columns
-            from migration_add_dlp_columns import run_migration
-            run_migration()
-            
-            # Return default value since columns were just added
-            return True
-    
-    # Check user-specific settings
+
+def get_user_threshold(user_id: int) -> str:
     with session_scope() as session:
-        user_settings = session.query(Settings).filter(
-            Settings.user_id == user_id
-        ).first()
-        
-        if user_settings and hasattr(user_settings, "enable_ms_dlp"):
-            return user_settings.enable_ms_dlp
-    
-    # Default to enabled if no user-specific setting is found
-    return True
+        row = session.query(Settings.ms_dlp_sensitivity_threshold).filter(Settings.user_id == user_id).first()
+    threshold = (row[0] if row and row[0] else "confidential").lower()
+    return threshold if threshold in SENSITIVITY_LEVELS else "confidential"
+
+
+def scan_file_for_sensitivity(
+    user_id: int,
+    file_path: str,
+    file_name: str,
+    file_mime: Optional[str] = None,
+    file_text: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Decide whether an uploaded file may be used.
+
+    1. Block when an embedded sensitivity label is at or above the user's threshold.
+    2. Otherwise, for Entra users, evaluate the file's text with Purview DLP.
+
+    Returns ``(allowed, error_message)``.
+    """
+    if not is_dlp_integration_enabled(user_id):
+        return True, None
+
+    threshold = get_user_threshold(user_id)
+    labels = resolve_file_labels(file_path)
+    blocking = [
+        label for label in labels
+        if SENSITIVITY_LEVELS[label["level"]] >= SENSITIVITY_LEVELS[threshold]
+    ]
+    if blocking:
+        label = max(blocking, key=lambda item: SENSITIVITY_LEVELS[item["level"]])
+        label_name = label.get("name") or label["id"]
+        _log_block_event(
+            user_id,
+            "block_sensitive_file",
+            {"sensitivity_label": [f"{label_name} ({label['level']})"]},
+            file_name,
+        )
+        record_purview_activity(user_id, file_name, "uploadFile")
+        return False, (
+            f"File blocked due to Microsoft sensitivity label: {label_name}. "
+            f"Files labelled '{label['level'].replace('_', ' ')}' or higher cannot be uploaded."
+        )
+
+    if file_text is None:
+        try:
+            from file_processor import extract_text_from_bytes
+            with open(file_path, "rb") as handle:
+                file_text = extract_text_from_bytes(file_name, file_mime, handle.read())
+        except Exception as exc:
+            logger.warning("Unable to extract text for Purview evaluation of %s: %s", file_name, exc)
+            file_text = None
+
+    if file_text:
+        decision = evaluate_with_purview(user_id, file_text, file_name, "uploadFile")
+        if not decision.allowed:
+            _log_block_event(
+                user_id,
+                "block_dlp_policy",
+                {"purview_dlp_policy": [decision.restriction or "error"]},
+                file_name,
+            )
+            return False, f"File blocked by your organisation's Microsoft Purview DLP policy: {file_name}."
+
+    return True, None
+
+
+def check_prompt_with_purview(user_id: int, text: str) -> Tuple[bool, Optional[str]]:
+    """
+    Evaluate a chat prompt against Purview DLP before it is sent to an AI model.
+
+    Returns ``(allowed, message)``; ``message`` is set for blocks and warnings.
+    """
+    if not is_dlp_integration_enabled(user_id):
+        return True, None
+    decision = evaluate_with_purview(user_id, text, "PrivacyChatBoX chat prompt", "uploadText")
+    if not decision.allowed:
+        _log_block_event(user_id, "block_dlp_policy", {"purview_dlp_policy": [decision.restriction or "error"]})
+        return False, "This message was blocked by your organisation's Microsoft Purview DLP policy."
+    if decision.warn:
+        return True, "Your organisation's Microsoft Purview DLP policy flagged this message as sensitive."
+    return True, None

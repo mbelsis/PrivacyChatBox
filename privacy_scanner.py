@@ -8,6 +8,7 @@ from datetime import datetime
 import streamlit as st
 from database import get_session, session_scope
 from models import User, Settings, DetectionEvent
+from data_protection import mask_detected_patterns
 
 # Define patterns with their levels and confidence scores
 DEFAULT_PATTERNS = [
@@ -122,7 +123,9 @@ def log_detection_event(user_id: int, action: str, detected: Dict[str, List[str]
                 user_id=user_id,
                 action=action,
                 severity="high" if len(detected) > 2 else "medium" if len(detected) > 0 else "low",
-                detected_patterns=detected,
+                # Store masked previews only: audit logs must not become a second copy
+                # of the sensitive data they report (GDPR data minimisation).
+                detected_patterns=mask_detected_patterns(detected),
                 file_names=file_names
             )
             session.add(detection_event)

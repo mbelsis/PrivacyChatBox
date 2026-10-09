@@ -53,12 +53,12 @@ def test_get_ai_response_uses_overrides_without_mutating_settings(monkeypatch):
         messages=[{"role": "user", "content": "hello"}],
         stream=False,
         override_provider="openai",
-        override_model="gpt-4-turbo",
+        override_model="gpt-6.1-sol",
         input_already_processed=True,
     )
 
     assert result == "ok"
-    assert captured == {"provider": "openai", "model": "gpt-4-turbo"}
+    assert captured == {"provider": "openai", "model": "gpt-6.1-sol"}
     assert settings.openai_model == "gpt-4o"
     assert settings.custom_patterns == [{"name": "token", "pattern": r"tok_[a-z]+"}]
 

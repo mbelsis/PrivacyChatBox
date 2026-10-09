@@ -3,11 +3,10 @@ import json
 import time
 import hmac
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple, Any
 import msal
 import requests
-from jose import jwt
 import uuid
 import html
 import streamlit as st
@@ -242,7 +241,7 @@ def create_or_get_azure_user(email: str, display_name: str, azure_id: str) -> Tu
                     "user_id": user_id,
                     "username": email,
                     "role": user_role,
-                    "exp": (datetime.utcnow() + timedelta(days=30)).isoformat(),
+                    "exp": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
                     "must_change_password": False,
                 }
     

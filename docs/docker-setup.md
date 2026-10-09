@@ -49,7 +49,6 @@ AZURE_REDIRECT_URI=http://localhost:5000/
 MS_TENANT_ID=your_tenant_id
 MS_CLIENT_ID=your_client_id
 MS_CLIENT_SECRET=your_client_secret
-MS_DLP_ENDPOINT_ID=your_endpoint_id
 ```
 
 #### Option B: Edit docker-compose.yml
@@ -80,8 +79,8 @@ http://localhost:5000
 ```
 
 Use the default login credentials:
-- Username: **admin**
-- Password: **admin**
+- Username: **admin** (or `DEFAULT_ADMIN_USERNAME`)
+- Password: a random temporary password printed in the server log on first start (`docker-compose logs app` for Docker), or `DEFAULT_ADMIN_PASSWORD` if you set a strong one. You must change it at first login.
 
 **Important:** Change the admin password after your first login through the Admin panel.
 

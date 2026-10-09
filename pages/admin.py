@@ -127,62 +127,72 @@ AZURE_CLIENT_SECRET: ********
             # Check if Microsoft settings are configured
             ms_settings = get_ms_settings()
             
-            if not ms_settings.get("is_configured", False):
-                st.warning("""
-                Microsoft DLP integration is not properly configured. 
-                To enable this feature, the following environment variables must be set:
-                - MS_CLIENT_ID
-                - MS_CLIENT_SECRET
-                - MS_TENANT_ID
-                - MS_DLP_ENDPOINT_ID
-                
-                Configure these settings below.
-                """)
-            
-            # Current MS DLP settings
-            current_client_id = os.environ.get("MS_CLIENT_ID", "")
-            current_client_secret = os.environ.get("MS_CLIENT_SECRET", "")
-            current_tenant_id = os.environ.get("MS_TENANT_ID", "")
-            current_endpoint_id = os.environ.get("MS_DLP_ENDPOINT_ID", "")
-            
-            # Display current settings
-            st.write("### Current Microsoft DLP Configuration")
-            
-            if all([current_client_id, current_client_secret, current_tenant_id, current_endpoint_id]):
-                st.success("Microsoft DLP integration is configured")
-                
-                # Show the current settings in a read-only format
-                st.code(f"""
-MS_CLIENT_ID: {current_client_id[:8]}...{current_client_id[-4:] if len(current_client_id) > 12 else ""}
-MS_TENANT_ID: {current_tenant_id[:8]}...{current_tenant_id[-4:] if len(current_tenant_id) > 12 else ""}
-MS_DLP_ENDPOINT_ID: {current_endpoint_id[:8]}...{current_endpoint_id[-4:] if len(current_endpoint_id) > 12 else ""}
-MS_CLIENT_SECRET: ********
-                """)
+            def mask(value):
+                if not value:
+                    return "(not set)"
+                return f"{value[:8]}...{value[-4:]}" if len(value) > 12 else "••••"
+
+            st.write("### Current Microsoft Purview Configuration")
+            if ms_settings.get("is_configured", False):
+                st.success("Microsoft Purview / Information Protection integration is configured")
             else:
-                st.warning("Microsoft DLP integration is not fully configured")
-            
-            # Form to update Microsoft DLP settings
-            st.write("### Update Microsoft DLP Settings")
-            st.write("Configure the Microsoft DLP integration to enable enhanced data loss prevention features.")
-            
-            with st.form("ms_dlp_settings_form"):
-                new_client_id = st.text_input("Client ID", value=current_client_id, placeholder="Enter Microsoft App Client ID")
-                new_client_secret = st.text_input("Client Secret", type="password", placeholder="Enter Microsoft App Client Secret")
-                new_tenant_id = st.text_input("Tenant ID", value=current_tenant_id, placeholder="Enter Microsoft Tenant ID")
-                new_endpoint_id = st.text_input("DLP Endpoint ID", value=current_endpoint_id, placeholder="Enter DLP Endpoint ID")
-                
+                st.warning(
+                    "Microsoft Purview integration is not configured. Missing environment variables: "
+                    + ", ".join(ms_settings.get("missing", []))
+                )
+
+            st.code(
+                f"MS_CLIENT_ID:               {mask(ms_settings.get('MS_CLIENT_ID'))}\n"
+                f"MS_TENANT_ID:               {mask(ms_settings.get('MS_TENANT_ID'))}\n"
+                f"MS_CLIENT_SECRET:           {'********' if ms_settings.get('MS_CLIENT_SECRET') else '(not set)'}\n"
+                f"MS_PURVIEW_APPLICATION_ID:  {mask(ms_settings.get('MS_PURVIEW_APPLICATION_ID'))}\n"
+                f"MS_PURVIEW_PROCESS_CONTENT: {ms_settings.get('purview_enabled')}\n"
+                f"MS_PURVIEW_FAIL_CLOSED:     {ms_settings.get('fail_closed')}"
+            )
+
+            if ms_settings.get("is_configured", False) and st.button("Test connection (list sensitivity labels)", key="ms_dlp_test"):
+                from ms_dlp import get_tenant_sensitivity_labels, classify_label_level
+                with st.spinner("Contacting Microsoft Graph..."):
+                    tenant_labels = get_tenant_sensitivity_labels(force_refresh=True)
+                if tenant_labels:
+                    st.success(f"Connected. {len(tenant_labels)} sensitivity labels found.")
+                    st.dataframe(
+                        pd.DataFrame([
+                            {"Label": label["name"], "ID": label_id, "Mapped level": classify_label_level(label)}
+                            for label_id, label in tenant_labels.items()
+                        ]),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
+                else:
+                    st.error(
+                        "No labels returned. Check the client secret, admin consent for "
+                        "InformationProtectionPolicy.Read.All, and the application logs."
+                    )
+
+            with st.expander("How to set up the Microsoft Purview integration", expanded=not ms_settings.get("is_configured", False)):
                 st.markdown("""
-                #### How to set up Microsoft DLP Integration:
-                1. Go to the [Azure Portal](https://portal.azure.com) and register a new application
-                2. Set up Microsoft Information Protection and DLP policies
-                3. Create a client secret
-                4. Copy the Client ID, Tenant ID, Client Secret, and DLP Endpoint ID to the fields above
+                Credentials are read from environment variables only; they are never stored by the application.
+
+                1. In **Microsoft Entra ID**, register an application and create a client secret.
+                2. Grant these **Microsoft Graph application permissions** and give admin consent:
+                   - `InformationProtectionPolicy.Read.All` (resolve sensitivity label IDs to names)
+                   - `Content.Process.User` (evaluate prompts and files with `processContent`)
+                   - `ContentActivity.Write` (record blocked uploads in Purview audit)
+                3. In **Microsoft Purview**, create a DLP policy that targets this Entra application
+                   (for example with the `New-DlpComplianceRule` PowerShell cmdlet). Without a policy
+                   for the app, `processContent` evaluates nothing and allows all content.
+                4. Set `MS_CLIENT_ID`, `MS_CLIENT_SECRET` and `MS_TENANT_ID`, then restart the app.
+
+                **Coverage:** sensitivity labels embedded in uploaded files are enforced for every user.
+                Purview DLP policy evaluation needs a Microsoft Entra identity, so it applies to users
+                who sign in with Azure AD.
+
+                **Optional settings:** `MS_DLP_LABEL_LEVELS` (JSON mapping label name or ID to a level),
+                `MS_DLP_UNKNOWN_LABEL_LEVEL` (default `confidential`), `MS_PURVIEW_FAIL_CLOSED`
+                (block when Purview is unreachable), `MS_PURVIEW_APPLICATION_ID` (if different from
+                `MS_CLIENT_ID`). `MS_DLP_ENDPOINT_ID` is no longer used.
                 """)
-                
-                submitted = st.form_submit_button("Update Microsoft DLP Settings")
-                
-                if submitted:
-                    st.warning("These values are not persisted by the application. Set the corresponding environment variables in your deployment, then restart the app.")
             
             # Organization-wide DLP settings section
             st.write("### Organization-wide DLP Settings")
@@ -290,10 +300,10 @@ MS_CLIENT_SECRET: ********
             
             The Microsoft DLP (Data Loss Prevention) integration enhances privacy protection by:
             
-            1. Scanning uploaded files for Microsoft Sensitivity labels
-            2. Blocking files with sensitivity levels at or above the threshold
-            3. Reporting DLP violations to Microsoft Compliance center
-            4. Preventing sensitive information from being used with AI models
+            1. Reading Microsoft sensitivity labels embedded in uploaded files (locally, without uploading them)
+            2. Blocking files labelled at or above each user's sensitivity threshold
+            3. Evaluating prompts and file text against your Purview DLP policies (Graph `processContent`)
+            4. Recording blocked uploads in Purview audit and in the local privacy log
             
             This is particularly useful for organizations that already use Microsoft Information Protection.
             """)
@@ -382,7 +392,8 @@ MS_CLIENT_SECRET: ********
                     new_username,
                     new_password,
                     role=new_role,
-                    allow_when_registration_disabled=True
+                    allow_when_registration_disabled=True,
+                    must_change_password=True,
                 )
                 if success:
                     st.success(f"User '{new_username}' created successfully")
@@ -467,7 +478,12 @@ MS_CLIENT_SECRET: ********
             elif validate_password_strength(new_password):
                 st.error(validate_password_strength(new_password))
             else:
-                success = update_user_password(change_pw_user_id, new_password)
+                # A password set by an administrator for someone else is temporary.
+                success = update_user_password(
+                    change_pw_user_id,
+                    new_password,
+                    require_change=change_pw_user_id != user_id,
+                )
                 if success:
                     st.success("Password updated successfully")
                 else:
@@ -521,6 +537,15 @@ MS_CLIENT_SECRET: ********
     # System Statistics tab
     with stats_tab:
         st.subheader("System Statistics")
+
+        from data_protection import encryption_enabled
+        if encryption_enabled():
+            st.success("🔐 Encryption at rest is enabled for conversation titles, messages and file names.")
+        else:
+            st.warning(
+                "🔓 Encryption at rest is disabled. Set DATA_ENCRYPTION_KEY and run "
+                "`python migration_secure_existing_data.py` to encrypt stored conversations."
+            )
         
         # Get system statistics with error handling
         from sqlalchemy import func
@@ -649,7 +674,7 @@ MS_CLIENT_SECRET: ********
         with col2:
             action_filter = st.selectbox(
                 "Action Type",
-                ["All", "scan", "anonymize", "block_sensitive_file"],
+                ["All", "scan", "anonymize", "block_sensitive_file", "block_dlp_policy"],
                 key="log_action_filter"
             )
         

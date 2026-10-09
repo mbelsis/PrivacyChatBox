@@ -61,14 +61,20 @@ except ImportError:
     sys.modules["anthropic"] = anthropic_stub
 
 try:
-    import google.generativeai  # noqa: F401
+    from google import genai  # noqa: F401
+    from google.genai import types as _genai_types  # noqa: F401
 except ImportError:
-    if "google" not in sys.modules:
-        sys.modules["google"] = types.ModuleType("google")
-    google_genai_stub = types.ModuleType("google.generativeai")
-    google_genai_stub.GenerativeModel = object
-    google_genai_stub.configure = _noop
-    sys.modules["google.generativeai"] = google_genai_stub
+    google_pkg = sys.modules.setdefault("google", types.ModuleType("google"))
+    google_genai_stub = types.ModuleType("google.genai")
+    google_genai_stub.Client = object
+    google_genai_types_stub = types.ModuleType("google.genai.types")
+    google_genai_types_stub.Content = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    google_genai_types_stub.Part = types.SimpleNamespace(from_text=lambda text: types.SimpleNamespace(text=text))
+    google_genai_types_stub.GenerateContentConfig = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    google_genai_stub.types = google_genai_types_stub
+    google_pkg.genai = google_genai_stub
+    sys.modules["google.genai"] = google_genai_stub
+    sys.modules["google.genai.types"] = google_genai_types_stub
 
 if "msal" not in sys.modules:
     try:
@@ -77,14 +83,6 @@ if "msal" not in sys.modules:
         msal_stub = types.ModuleType("msal")
         msal_stub.ConfidentialClientApplication = object
         sys.modules["msal"] = msal_stub
-
-if "jose" not in sys.modules:
-    try:
-        import jose  # noqa: F401
-    except ImportError:
-        jose_stub = types.ModuleType("jose")
-        jose_stub.jwt = types.SimpleNamespace()
-        sys.modules["jose"] = jose_stub
 
 try:
     import reportlab  # noqa: F401

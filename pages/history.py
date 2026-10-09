@@ -226,7 +226,7 @@ def show():
         total_detection_events = 0
         total_dlp_blocks = 0
         detection_by_severity = {"low": 0, "medium": 0, "high": 0}
-        detection_by_action = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0}
+        detection_by_action = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0, "block_dlp_policy": 0}
         conversations_by_date = {}
         users_by_conversation_count = {}
         
@@ -311,7 +311,10 @@ def show():
                             detection_by_action[action] = count
                     
                     # Count DLP blocks specifically
-                    total_dlp_blocks = detection_by_action.get("block_sensitive_file", 0)
+                    total_dlp_blocks = (
+                        detection_by_action.get("block_sensitive_file", 0)
+                        + detection_by_action.get("block_dlp_policy", 0)
+                    )
                     
                     # Get counts by date for the past 30 days
                     thirty_days_ago = datetime.now() - timedelta(days=30)
@@ -371,7 +374,7 @@ def show():
             st.metric("Privacy Events", total_detection_events)
             
         with col4:
-            st.metric("Blocked Sensitive Files", total_dlp_blocks)
+            st.metric("DLP Blocks", total_dlp_blocks)
         
         # Create data for charts
         st.subheader("Privacy Detection Analysis")
@@ -410,12 +413,14 @@ def show():
                 "Action": [
                     "Content Scan", 
                     "Content Anonymization",
-                    "Blocked Sensitive Files"
+                    "Blocked Sensitive Files",
+                    "Purview DLP Blocks"
                 ],
                 "Count": [
                     detection_by_action.get("scan", 0),
                     detection_by_action.get("anonymize", 0),
-                    detection_by_action.get("block_sensitive_file", 0)
+                    detection_by_action.get("block_sensitive_file", 0),
+                    detection_by_action.get("block_dlp_policy", 0)
                 ]
             })
             
@@ -428,7 +433,8 @@ def show():
                     color_discrete_map={
                         "Content Scan": "#42A5F5",  # Blue
                         "Content Anonymization": "#AB47BC",  # Purple
-                        "Blocked Sensitive Files": "#F44336"  # Red
+                        "Blocked Sensitive Files": "#F44336",  # Red
+                        "Purview DLP Blocks": "#FF7043"  # Deep orange
                     },
                     hole=0.4,
                     title="By Action Type"

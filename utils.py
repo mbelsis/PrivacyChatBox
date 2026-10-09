@@ -23,46 +23,31 @@ def generate_unique_id() -> str:
 
 def save_uploaded_file(uploaded_file, content_override: Optional[bytes] = None) -> Tuple[str, str, int]:
     """
-    Save an uploaded file to a temporary location
-    
-    Args:
-        uploaded_file: Streamlit uploaded file object
-        
+    Write an uploaded file to a private temporary file.
+
+    The file is created with ``mkstemp`` (owner-only permissions, unpredictable name).
+    Callers are responsible for deleting it; the application only needs it on disk
+    while the DLP checks run.
+
     Returns:
-        Tuple containing:
-            - Path to the saved file
-            - MIME type of the file
-            - Size of the file in bytes
+        Tuple of (path, MIME type, size in bytes)
     """
-    # Create a temporary directory if it doesn't exist
-    temp_dir = tempfile.gettempdir()
-    
-    # Generate a unique filename
-    unique_id = generate_unique_id()
     file_name = getattr(uploaded_file, "name", None)
     if file_name is None and isinstance(uploaded_file, dict):
         file_name = uploaded_file.get("name", "uploaded_file")
     file_name = file_name or "uploaded_file"
-
     file_extension = os.path.splitext(file_name)[1] if "." in file_name else ""
-    unique_filename = f"{unique_id}{file_extension}"
-    
-    # Full path to save the file
-    file_path = os.path.join(temp_dir, unique_filename)
-    
-    # Save the file
-    file_bytes = content_override if content_override is not None else uploaded_file.getbuffer()
-    with open(file_path, "wb") as f:
-        f.write(file_bytes)
-    
-    # Get MIME type and file size
+
+    file_bytes = content_override if content_override is not None else bytes(uploaded_file.getbuffer())
+    fd, file_path = tempfile.mkstemp(prefix="pcb_upload_", suffix=file_extension)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(file_bytes)
+
     uploaded_file_type = getattr(uploaded_file, "type", None)
     if uploaded_file_type is None and isinstance(uploaded_file, dict):
         uploaded_file_type = uploaded_file.get("mime_type")
     mime_type = uploaded_file_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
-    file_size = os.path.getsize(file_path)
-    
-    return file_path, mime_type, file_size
+    return file_path, mime_type, len(file_bytes)
 
 def create_new_conversation(user_id: int, title: str = "New Conversation") -> int:
     """
@@ -260,11 +245,15 @@ def add_message_to_conversation(
 
             for uploaded_file in uploaded_files:
                 content_override = None
+                file_text = None
                 original_name = getattr(uploaded_file, "name", "uploaded_file")
                 if isinstance(uploaded_file, dict):
                     original_name = uploaded_file.get("name", original_name)
                     mime_type = uploaded_file.get("mime_type")
-                    content_override = uploaded_file.get("content_bytes")
+                    # DLP must inspect the original bytes: anonymized content is plain
+                    # text and no longer carries the file's sensitivity label.
+                    content_override = uploaded_file.get("original_bytes") or uploaded_file.get("content_bytes")
+                    file_text = uploaded_file.get("text")
                 else:
                     mime_type = None
 
@@ -277,19 +266,25 @@ def add_message_to_conversation(
                     "size": file_size,
                 })
 
-                # Check for Microsoft sensitivity labels if DLP integration is available
+                # Check for Microsoft sensitivity labels / Purview DLP policies
                 if dlp_enabled:
                     file_allowed, dlp_error = scan_file_for_sensitivity(
                         user_id=user_id,
                         file_path=file_path,
                         file_name=original_name,
-                        file_mime=mime_type
+                        file_mime=mime_type,
+                        file_text=file_text,
                     )
 
                     if not file_allowed:
                         # File blocked by DLP: nothing has been written to the database yet.
                         _cleanup_saved_files()
                         return 0, dlp_error
+
+            # Data minimisation: uploads are only needed on disk for the DLP checks.
+            # Their text is passed to the model in memory, so the copies are removed
+            # now instead of accumulating indefinitely in the temp directory.
+            _cleanup_saved_files()
 
         # Stage 2: everything passed, write the message and its files atomically.
         with session_scope() as session:
@@ -306,7 +301,7 @@ def add_message_to_conversation(
                 session.add(File(
                     message_id=message_id,
                     original_name=saved["original_name"],
-                    path=saved["path"],
+                    path=None,  # file contents are not retained
                     mime_type=saved["mime_type"],
                     size=saved["size"],
                     scan_result={}

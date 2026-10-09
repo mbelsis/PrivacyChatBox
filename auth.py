@@ -1,17 +1,23 @@
 import streamlit as st
 import os
-from datetime import datetime, timedelta
-from typing import Optional
+import secrets
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple
 from dotenv import load_dotenv
 from database import get_session, session_scope
 from models import User, Settings
 from sqlalchemy.exc import IntegrityError
 from utils_auth import hash_password, verify_password, is_legacy_sha256_hash
+from model_catalog import DEFAULT_OPENAI_MODEL, DEFAULT_CLAUDE_MODEL, DEFAULT_GEMINI_MODEL
 
 load_dotenv()
 
 DEFAULT_BOOTSTRAP_ADMIN_USERNAME = os.environ.get("DEFAULT_ADMIN_USERNAME", "admin").strip() or "admin"
-DEFAULT_BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "admin").strip() or "admin"
+# Optional. When unset or weak, a random bootstrap password is generated instead.
+CONFIGURED_BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()
+# Passwords that earlier versions shipped as defaults; accounts still using them are
+# forced to change password even though new installs never create them.
+KNOWN_DEFAULT_PASSWORDS = {"admin"}
 ALLOW_SELF_REGISTRATION = os.environ.get("ALLOW_SELF_REGISTRATION", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -21,15 +27,42 @@ def is_bootstrap_account(username: str) -> bool:
 
 
 def is_using_bootstrap_password(user: User) -> bool:
-    """Return True when the bootstrap account still uses the bootstrap password."""
-    return is_bootstrap_account(user.username) and verify_password(DEFAULT_BOOTSTRAP_ADMIN_PASSWORD, user.password)
+    """Return True when the bootstrap account still uses a configured or legacy default password."""
+    if not is_bootstrap_account(user.username):
+        return False
+    candidates = set(KNOWN_DEFAULT_PASSWORDS)
+    if CONFIGURED_BOOTSTRAP_ADMIN_PASSWORD:
+        candidates.add(CONFIGURED_BOOTSTRAP_ADMIN_PASSWORD)
+    return any(verify_password(candidate, user.password) for candidate in candidates)
+
+
+def requires_password_change(user: User) -> bool:
+    return bool(getattr(user, "must_change_password", False)) or is_using_bootstrap_password(user)
 
 
 def validate_password_strength(password: str) -> Optional[str]:
     """Return an error message when a password is too weak."""
     if len(password) < 8:
         return "Password must be at least 8 characters long."
+    if password.lower() in KNOWN_DEFAULT_PASSWORDS:
+        return "This password is a well-known default and cannot be used."
     return None
+
+
+def resolve_bootstrap_password() -> Tuple[str, bool]:
+    """
+    Password for a newly created bootstrap admin.
+
+    Returns ``(password, generated)``. The configured ``DEFAULT_ADMIN_PASSWORD`` is used
+    only when it passes the password policy; otherwise a random one is generated so a
+    fresh install never exposes a guessable admin account.
+    """
+    configured = CONFIGURED_BOOTSTRAP_ADMIN_PASSWORD
+    if configured and validate_password_strength(configured) is None:
+        return configured, False
+    if configured:
+        print("WARNING: DEFAULT_ADMIN_PASSWORD is too weak; generating a random bootstrap password instead.", flush=True)
+    return secrets.token_urlsafe(18), True
 
 def init_auth():
     """Initialize authentication system"""
@@ -52,11 +85,13 @@ def init_auth():
         admin_exists = session.query(User).filter(User.username == DEFAULT_BOOTSTRAP_ADMIN_USERNAME).first()
         
         if not admin_exists:
-            # Create bootstrap admin user with the configured bootstrap password.
+            bootstrap_password, generated = resolve_bootstrap_password()
+            # The bootstrap password is always temporary.
             admin_user = User(
                 username=DEFAULT_BOOTSTRAP_ADMIN_USERNAME,
-                password=hash_password(DEFAULT_BOOTSTRAP_ADMIN_PASSWORD),
-                role="admin"
+                password=hash_password(bootstrap_password),
+                role="admin",
+                must_change_password=True,
             )
             session.add(admin_user)
             
@@ -66,11 +101,11 @@ def init_auth():
                 llm_provider="openai",
                 ai_character="assistant",
                 openai_api_key="",
-                openai_model="gpt-4o",
+                openai_model=DEFAULT_OPENAI_MODEL,
                 claude_api_key="",
-                claude_model="claude-3-5-sonnet-20241022",
+                claude_model=DEFAULT_CLAUDE_MODEL,
                 gemini_api_key="",
-                gemini_model="gemini-1.5-pro",
+                gemini_model=DEFAULT_GEMINI_MODEL,
                 serpapi_key="",
                 local_model_path="",
                 scan_enabled=True,
@@ -81,8 +116,20 @@ def init_auth():
             )
             session.add(default_settings)
             
+            if generated:
+                # Server log only: this code runs before login, so nothing secret may be
+                # rendered in the page.
+                print(
+                    "\n" + "=" * 72
+                    + f"\nBootstrap admin account created: {DEFAULT_BOOTSTRAP_ADMIN_USERNAME}"
+                    + f"\nTemporary password: {bootstrap_password}"
+                    + "\nYou will be asked to change it after the first login."
+                    + "\n" + "=" * 72 + "\n",
+                    flush=True,
+                )
             st.sidebar.warning(
-                f"Bootstrap admin '{DEFAULT_BOOTSTRAP_ADMIN_USERNAME}' created. Change its password immediately."
+                f"Bootstrap admin '{DEFAULT_BOOTSTRAP_ADMIN_USERNAME}' created. "
+                "Its temporary password is in the server log (or DEFAULT_ADMIN_PASSWORD)."
             )
 
 # hash_password is now imported from utils_auth.py
@@ -108,8 +155,8 @@ def authenticate(username, password):
                     "user_id": user.id,
                     "username": user.username,
                     "role": user.role,
-                    "exp": (datetime.utcnow() + timedelta(days=30)).isoformat(),
-                    "must_change_password": is_using_bootstrap_password(user)
+                    "exp": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+                    "must_change_password": requires_password_change(user)
                 }
                 
                 return True, user.id, user.role
@@ -118,7 +165,7 @@ def authenticate(username, password):
     
     return False, None, None
 
-def create_user(username, password, role="user", allow_when_registration_disabled: bool = False):
+def create_user(username, password, role="user", allow_when_registration_disabled: bool = False, must_change_password: bool = False):
     """Create a new user"""
     if not username or not password:
         return False
@@ -175,7 +222,8 @@ def create_user(username, password, role="user", allow_when_registration_disable
             new_user = User(
                 username=username,
                 password=hash_password(password),
-                role=role
+                role=role,
+                must_change_password=must_change_password,
             )
             session.add(new_user)
             session.flush()  # Flush to get the user ID
@@ -185,11 +233,11 @@ def create_user(username, password, role="user", allow_when_registration_disable
                 "llm_provider": "openai",
                 "ai_character": "assistant",
                 "openai_api_key": "",
-                "openai_model": "gpt-4o",
+                "openai_model": DEFAULT_OPENAI_MODEL,
                 "claude_api_key": "",
-                "claude_model": "claude-3-5-sonnet-20241022",
+                "claude_model": DEFAULT_CLAUDE_MODEL,
                 "gemini_api_key": "",
-                "gemini_model": "gemini-1.5-pro",
+                "gemini_model": DEFAULT_GEMINI_MODEL,
                 "serpapi_key": "",
                 "local_model_path": "",
                 "scan_enabled": True,
@@ -282,8 +330,12 @@ def update_user_role(user_id, new_role):
         
         return False
         
-def update_user_password(user_id, new_password):
-    """Update a user's password"""
+def update_user_password(user_id, new_password, require_change: bool = False):
+    """Update a user's password.
+
+    ``require_change`` marks the new password as temporary (an administrator reset),
+    so the user must choose their own at next login.
+    """
     if not user_id or not new_password:
         return False
 
@@ -296,6 +348,7 @@ def update_user_password(user_id, new_password):
         
         if user:
             user.password = hash_password(new_password)
+            user.must_change_password = require_change
             return True
         
         return False

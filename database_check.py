@@ -117,6 +117,13 @@ def main():
     else:
         logger.error("Pattern levels migration failed")
     
+    # Encrypt legacy plaintext data (when a key is configured) and mask old audit values
+    logger.info("Securing existing data...")
+    if run_migration("migration_secure_existing_data"):
+        logger.info("Existing data secured")
+    else:
+        logger.error("Securing existing data failed")
+    
     # Final check after migrations
     dlp_columns_exist, missing_dlp_columns = check_columns_exist("settings", DLP_COLUMNS)
     llm_columns_exist, missing_llm_columns = check_columns_exist("settings", LOCAL_LLM_COLUMNS)

@@ -296,7 +296,7 @@ else:
     st.write("### Please select an option from the sidebar menu")
 
     if st.session_state.get("must_change_password"):
-        st.warning("You are using the bootstrap account password. Change it in Settings before using the system normally.")
+        st.warning("Your password is temporary. Change it in Settings > Account before using the system.")
     
     st.info("👈 Use the sidebar navigation on the left to access different features.")
     

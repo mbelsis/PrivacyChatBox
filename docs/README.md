@@ -41,7 +41,6 @@ AZURE_REDIRECT_URI=http://localhost:5000/
 MS_CLIENT_ID=your_ms_client_id
 MS_CLIENT_SECRET=your_ms_client_secret
 MS_TENANT_ID=your_ms_tenant_id
-MS_DLP_ENDPOINT_ID=your_ms_dlp_endpoint_id
 ```
 
 ### Application Structure

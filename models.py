@@ -2,6 +2,8 @@ from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+from data_protection import EncryptedText
+from model_catalog import DEFAULT_OPENAI_MODEL, DEFAULT_CLAUDE_MODEL, DEFAULT_GEMINI_MODEL
 import json
 import datetime
 
@@ -12,6 +14,8 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     password = Column(String)
     role = Column(String, default="user")  # "admin" or "user"
+    # Forces a password change at next login (bootstrap admin, admin-issued resets).
+    must_change_password = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
     
     # Azure AD integration fields
@@ -35,13 +39,13 @@ class Settings(Base):
     
     # API keys and model selection
     openai_api_key = Column(String, default="")
-    openai_model = Column(String, default="gpt-4o")
+    openai_model = Column(String, default=DEFAULT_OPENAI_MODEL)
     
     claude_api_key = Column(String, default="")
-    claude_model = Column(String, default="claude-3-5-sonnet-20241022")
+    claude_model = Column(String, default=DEFAULT_CLAUDE_MODEL)
     
     gemini_api_key = Column(String, default="")
-    gemini_model = Column(String, default="gemini-1.5-pro")
+    gemini_model = Column(String, default=DEFAULT_GEMINI_MODEL)
     
     serpapi_key = Column(String, default="")
     
@@ -118,7 +122,7 @@ class Conversation(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    title = Column(String, default="New Conversation")
+    title = Column(EncryptedText, default="New Conversation")  # encrypted at rest
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
@@ -148,7 +152,7 @@ class Message(Base):
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"))
     role = Column(String)  # "user" or "assistant"
-    content = Column(Text)
+    content = Column(EncryptedText)  # encrypted at rest
     timestamp = Column(DateTime, default=func.now())
     
     # Relationships
@@ -171,8 +175,8 @@ class File(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"))
-    original_name = Column(String)
-    path = Column(String)
+    original_name = Column(EncryptedText)  # file names can identify people; encrypted at rest
+    path = Column(String)  # no longer populated: upload contents are not retained
     mime_type = Column(String)
     size = Column(Integer)
     scan_result = Column(JSON)

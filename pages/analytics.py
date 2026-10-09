@@ -351,7 +351,7 @@ def show():
                 
                 # Prepare data for analytics
                 severity_counts = {"low": 0, "medium": 0, "high": 0}
-                action_counts = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0}
+                action_counts = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0, "block_dlp_policy": 0}
                 
                 # Process all detection events
                 pattern_counts = {}
@@ -374,7 +374,8 @@ def show():
                 action_display = {
                     "scan": "Content Scan",
                     "anonymize": "Content Anonymization",
-                    "block_sensitive_file": "Blocked Sensitive Files"
+                    "block_sensitive_file": "Blocked Sensitive Files",
+                    "block_dlp_policy": "Purview DLP Blocks"
                 }
                 
                 # Create dataframes for charts
@@ -436,7 +437,8 @@ def show():
                     color_discrete_map={
                         "Content Scan": "#42A5F5",  # Blue
                         "Content Anonymization": "#AB47BC",  # Purple
-                        "Blocked Sensitive Files": "#F44336"  # Red
+                        "Blocked Sensitive Files": "#F44336",  # Red
+                        "Purview DLP Blocks": "#FF7043"  # Deep orange
                     },
                     hole=0.4,
                     title="Detection Events by Action Type"
@@ -474,7 +476,7 @@ def show():
                     continue
                 date_str = event["timestamp"].strftime('%Y-%m-%d')
                 if date_str not in event_dates:
-                    event_dates[date_str] = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0}
+                    event_dates[date_str] = {"scan": 0, "anonymize": 0, "block_sensitive_file": 0, "block_dlp_policy": 0}
                 if event["action"] in event_dates[date_str]:
                     event_dates[date_str][event["action"]] += 1
             
@@ -485,7 +487,8 @@ def show():
                     "Date": date_str,
                     "Content Scan": counts["scan"],
                     "Content Anonymization": counts["anonymize"],
-                    "Blocked Files": counts["block_sensitive_file"]
+                    "Blocked Files": counts["block_sensitive_file"],
+                    "Purview DLP Blocks": counts["block_dlp_policy"]
                 })
             
             df_event_time = pd.DataFrame(event_time_data)
@@ -521,6 +524,15 @@ def show():
                     name='Blocked Files',
                     stackgroup='one',
                     line=dict(width=0.5, color='#F44336')
+                ))
+
+                fig.add_trace(go.Scatter(
+                    x=df_event_time["Date"], 
+                    y=df_event_time["Purview DLP Blocks"],
+                    mode='lines',
+                    name='Purview DLP Blocks',
+                    stackgroup='one',
+                    line=dict(width=0.5, color='#FF7043')
                 ))
                 
                 fig.update_layout(

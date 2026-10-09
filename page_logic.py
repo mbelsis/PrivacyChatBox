@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
 from utils import format_conversation_messages
+from model_catalog import DEFAULT_OPENAI_MODEL, DEFAULT_CLAUDE_MODEL, DEFAULT_GEMINI_MODEL
 
 
 def _value_or_default(value: Any, default: Any) -> Any:
@@ -265,11 +266,11 @@ def build_settings_snapshot(settings_row: Any) -> Optional[SimpleNamespace]:
         llm_provider=getattr(settings_row, "llm_provider", "openai"),
         ai_character=getattr(settings_row, "ai_character", "assistant"),
         openai_api_key=getattr(settings_row, "openai_api_key", ""),
-        openai_model=getattr(settings_row, "openai_model", "gpt-4o"),
+        openai_model=getattr(settings_row, "openai_model", DEFAULT_OPENAI_MODEL),
         claude_api_key=getattr(settings_row, "claude_api_key", ""),
-        claude_model=getattr(settings_row, "claude_model", "claude-3-5-sonnet-20241022"),
+        claude_model=getattr(settings_row, "claude_model", DEFAULT_CLAUDE_MODEL),
         gemini_api_key=getattr(settings_row, "gemini_api_key", ""),
-        gemini_model=getattr(settings_row, "gemini_model", "gemini-1.5-pro"),
+        gemini_model=getattr(settings_row, "gemini_model", DEFAULT_GEMINI_MODEL),
         serpapi_key=getattr(settings_row, "serpapi_key", ""),
         local_model_path=getattr(settings_row, "local_model_path", ""),
         local_model_context_size=getattr(settings_row, "local_model_context_size", None),
@@ -401,6 +402,10 @@ def build_file_payloads(files: List[Any]) -> List[Dict[str, Any]]:
             "mime_type": mime_type,
             "content": extract_text_from_bytes(file.name, mime_type, original_bytes),
             "content_bytes": original_bytes,
+            # Never modified, even when content/content_bytes are anonymized. DLP label
+            # checks must see the original file: anonymizing rewrites the bytes as plain
+            # text and would strip the embedded sensitivity label.
+            "original_bytes": original_bytes,
         })
     return payloads
 
@@ -410,6 +415,8 @@ def build_uploaded_file_records(file_payloads: List[Dict[str, Any]]) -> List[Dic
         "name": file_payload["name"],
         "mime_type": file_payload["mime_type"],
         "content_bytes": file_payload["content_bytes"],
+        "original_bytes": file_payload.get("original_bytes", file_payload["content_bytes"]),
+        "text": file_payload.get("content"),
     } for file_payload in file_payloads]
 
 

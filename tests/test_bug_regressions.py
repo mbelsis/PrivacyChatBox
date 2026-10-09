@@ -79,7 +79,9 @@ def test_allowed_upload_persists_message_and_file(sqlite_db, monkeypatch, tmp_pa
     with session_scope() as session:
         stored = session.query(File).filter(File.message_id == message_id).one()
         assert stored.original_name == "notes.txt"
-        assert os.path.exists(stored.path)
+        # File contents are intentionally not retained after the DLP checks.
+        assert stored.path is None
+    assert list(tmp_path.iterdir()) == []
 
 
 # ---------------------------------------------------------------------------

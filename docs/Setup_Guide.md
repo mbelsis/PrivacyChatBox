@@ -52,11 +52,10 @@ The application will be available at http://localhost:5000
 
 ### Step 4: Initial Login
 
-Use the default admin credentials to log in for the first time:
-- Username: **admin**
-- Password: **admin**
+Log in with the bootstrap admin account:
+- Username: **admin** (or `DEFAULT_ADMIN_USERNAME`)
+- Password: a random temporary password printed in the server log on first start (`docker-compose logs app` for Docker), or `DEFAULT_ADMIN_PASSWORD` if you set a strong one. You must change it at first login.
 
-**Important:** Change the admin password immediately after your first login by going to the Admin panel > User Management.
 
 ## Manual Setup Process
 
@@ -129,9 +128,9 @@ streamlit run app.py
 
 ### Step 7: Initial Login
 
-Use the default admin credentials to log in:
-- Username: **admin**
-- Password: **admin**
+Log in with the bootstrap admin account:
+- Username: **admin** (or `DEFAULT_ADMIN_USERNAME`)
+- Password: a random temporary password printed in the server log on first start (`docker-compose logs app` for Docker), or `DEFAULT_ADMIN_PASSWORD` if you set a strong one. You must change it at first login.
 
 ## Environment Variables Configuration
 
@@ -160,7 +159,6 @@ PrivacyChatBoX uses environment variables for configuration. You can set these i
 - `MS_CLIENT_ID`: Microsoft application client ID
 - `MS_CLIENT_SECRET`: Microsoft application client secret
 - `MS_TENANT_ID`: Microsoft tenant ID
-- `MS_DLP_ENDPOINT_ID`: Microsoft DLP endpoint ID
 
 ## Troubleshooting
 
@@ -247,9 +245,9 @@ The application will be available at http://localhost:5000. If you're using the 
 
 #### Step 4: Initial Login
 
-Use the default admin credentials:
-- Username: **admin**
-- Password: **admin**
+Log in with the bootstrap admin account:
+- Username: **admin** (or `DEFAULT_ADMIN_USERNAME`)
+- Password: a random temporary password printed in the server log on first start (`docker-compose logs app` for Docker), or `DEFAULT_ADMIN_PASSWORD` if you set a strong one. You must change it at first login.
 
 #### Step 5: Stop the Application
 

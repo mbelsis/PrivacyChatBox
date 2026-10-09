@@ -72,6 +72,17 @@ Current layout:
   chronological message ordering, zero-valued local model settings, text extraction for
   PDF/DOCX/XLSX/PPTX uploads, and the signed Azure AD OAuth state.
 
+- [`tests/test_ms_dlp.py`](tests/test_ms_dlp.py)
+  Microsoft Purview integration: label extraction from Office custom properties, `LabelInfo.xml`,
+  PDF XMP and e-mail headers; label-to-level mapping; the Graph `processContent` request contract
+  and response parsing; fail-open/fail-closed behaviour; and that anonymized uploads cannot bypass
+  label enforcement.
+
+- [`tests/test_security_and_providers.py`](tests/test_security_and_providers.py)
+  Encryption at rest (round trip, legacy plaintext, wrong key, migration and key rotation), masked
+  audit values, bootstrap admin credentials, the model catalog and retired-ID resolution, the
+  OpenAI/Claude/Gemini SDK call shapes, and the SerpApi web search client.
+
 - [`tests/test_streamlit_pages.py`](tests/test_streamlit_pages.py)
   End-to-end page tests driven through Streamlit's `AppTest` harness against a
   throw-away SQLite database: landing/registration/login, the chat sensitive-content
@@ -149,7 +160,7 @@ Without these tests, many of the earlier bugs fixed in this repository could qui
 Example:
 
 ```text
-59 passed in 12.91s
+105 passed in 15.77s
 ```
 
 This means the currently covered logic still behaves as expected.
